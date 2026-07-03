@@ -10,6 +10,9 @@ services:
       - ch-data:/var/lib/clickhouse
     ulimits:
       nofile: 262144
+    # ClickHouse сам ужимается под cgroup-лимит (max_server_memory_usage ~90% от него).
+    # Без лимита при массовой заливке он + page cache раздувают WSL-виртуалку до потолка.
+    mem_limit: 6g
     environment:
       CLICKHOUSE_DB: tj
       # Без этого entrypoint генерирует users.d/default-user.xml, запирающий
