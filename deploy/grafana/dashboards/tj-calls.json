@@ -1,0 +1,201 @@
+{
+  "uid": "tj-calls",
+  "title": "ТЖ 1С — Серверные вызовы (CALL)",
+  "description": "Рабочая лошадка перф-инженера: где тормозит у пользователей и кто ест ресурсы rphost. Только события CALL.",
+  "tags": ["1c", "techlog", "perf"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": { "from": "2025-11-28T00:00:00.000Z", "to": "2025-12-01T00:00:00.000Z" },
+  "templating": {
+    "list": [
+      {
+        "name": "process_name",
+        "label": "Информационная база",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+        "definition": "SELECT DISTINCT process_name FROM tj.agg_minute WHERE process_name != '' ORDER BY 1",
+        "query": {
+          "editorType": "sql",
+          "queryType": "sql",
+          "format": 1,
+          "refId": "ChVariableQuery",
+          "rawSql": "SELECT DISTINCT process_name FROM tj.agg_minute WHERE process_name != '' ORDER BY 1"
+        },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "refresh": 1,
+        "sort": 0,
+        "options": []
+      },
+      {
+        "name": "usr",
+        "label": "Пользователь",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+        "definition": "SELECT usr FROM tj.agg_context WHERE usr != '' GROUP BY usr ORDER BY sum(cnt) DESC LIMIT 200",
+        "query": {
+          "editorType": "sql",
+          "queryType": "sql",
+          "format": 1,
+          "refId": "ChVariableQuery",
+          "rawSql": "SELECT usr FROM tj.agg_context WHERE usr != '' GROUP BY usr ORDER BY sum(cnt) DESC LIMIT 200"
+        },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "refresh": 1,
+        "sort": 0,
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Отклик по минутам: p50 / p95 / p99 и вызовы/мин",
+      "description": "Как быстро сервер отвечает пользователям в каждую минуту (перцентили длительности CALL, сек) и какая при этом нагрузка (вызовов в минуту, правая ось). Рост p95/p99 при ровном p50 — деградация «хвоста». Учитывает фильтр $process_name (agg_minute не хранит usr).",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 8, "lineWidth": 1, "pointSize": 3 } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "calls_per_min" },
+            "properties": [
+              { "id": "unit", "value": "short" },
+              { "id": "custom.axisPlacement", "value": "right" },
+              { "id": "custom.drawStyle", "value": "bars" },
+              { "id": "custom.fillOpacity", "value": 25 },
+              { "id": "custom.lineWidth", "value": 0 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "rgba(120,120,120,0.6)" } }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, round(arrayElement(quantilesTDigestMerge(0.5,0.95,0.99)(dur_q),1)/1e6,3) AS p50_s, round(arrayElement(quantilesTDigestMerge(0.5,0.95,0.99)(dur_q),2)/1e6,3) AS p95_s, round(arrayElement(quantilesTDigestMerge(0.5,0.95,0.99)(dur_q),3)/1e6,3) AS p99_s, sum(cnt) AS calls_per_min FROM tj.agg_minute WHERE event='CALL' AND minute >= $__fromTime AND minute <= $__toTime AND match(process_name, '^(${process_name:regex})$') GROUP BY minute ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Топ методов по суммарному времени",
+      "description": "Какие серверные методы (method_name/iface_name) съедают больше всего времени rphost за период: число вызовов, суммарные секунды, средняя/максимальная длительность, доля от общего времени, CPU и сетевой трафик. Кандидаты на оптимизацию №1. Учитывает $process_name и $usr.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT if(method_name='','(нет)',method_name) AS method_name, iface_name, count() AS calls, round(sum(duration_us)/1e6,1) AS total_s, round(avg(duration_us)/1e3,1) AS avg_ms, round(max(duration_us)/1e6,1) AS max_s, round(100*sum(duration_us)/sum(sum(duration_us)) OVER (),1) AS pct, round(sum(cpu_time_us)/1e6,1) AS cpu_total_s, round(sum(in_bytes+out_bytes)/1048576,1) AS io_mb FROM tj.events WHERE event='CALL' AND ts >= $__fromTime AND ts <= $__toTime AND match(process_name, '^(${process_name:regex})$') AND match(usr, '^(${usr:regex})$') GROUP BY method_name, iface_name ORDER BY sum(duration_us) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Топ пользователей по серверному времени",
+      "description": "Кто из пользователей (и фоновых заданий) занимает больше всего серверного времени: вызовы, суммарные секунды, средняя длительность, CPU и максимальный пик памяти. Отвечает на вопрос «у кого тормозит и кто грузит сервер». Учитывает $process_name и $usr.",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT if(usr='','(нет)',usr) AS usr, count() AS calls, round(sum(duration_us)/1e6,1) AS total_s, round(avg(duration_us)/1e3,1) AS avg_ms, round(sum(cpu_time_us)/1e6,1) AS cpu_s, round(max(memory_peak)/1048576,1) AS mem_peak_max_mb FROM tj.events WHERE event='CALL' AND ts >= $__fromTime AND ts <= $__toTime AND match(process_name, '^(${process_name:regex})$') AND match(usr, '^(${usr:regex})$') GROUP BY usr ORDER BY sum(duration_us) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "barchart",
+      "title": "Распределение длительностей вызовов",
+      "description": "Сколько вызовов CALL попадает в каждую корзину длительности (<0.1с … >60с) за период. Показывает характер нагрузки: море быстрых вызовов или заметный хвост долгих. Учитывает $process_name и $usr.",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 70, "axisLabel": "вызовов" } }, "overrides": [] },
+      "options": { "orientation": "auto", "xTickLabelRotation": -30, "showValue": "auto", "legend": { "showLegend": false } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT multiIf(duration_us < 100000, '1. <0.1с', duration_us < 500000, '2. 0.1–0.5с', duration_us < 1000000, '3. 0.5–1с', duration_us < 3000000, '4. 1–3с', duration_us < 10000000, '5. 3–10с', duration_us < 60000000, '6. 10–60с', '7. >60с') AS bucket, count() AS calls FROM tj.events WHERE event='CALL' AND ts >= $__fromTime AND ts <= $__toTime AND match(process_name, '^(${process_name:regex})$') AND match(usr, '^(${usr:regex})$') GROUP BY bucket ORDER BY bucket"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Память: пик по процессам (MB, поминутно)",
+      "description": "Максимальный memory_peak вызовов CALL за минуту в разрезе информационной базы (process_name). Всплеск — какой-то вызов раздул память rphost; смотрите «Топ вызовов по памяти» ниже за тот же интервал. Учитывает только $process_name (agg_minute не хранит usr).",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 29 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "unit": "decmbytes", "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, process_name, round(max(mem_peak_max)/1048576,1) AS mem_peak_mb FROM tj.agg_minute WHERE event='CALL' AND minute >= $__fromTime AND minute <= $__toTime AND match(process_name, '^(${process_name:regex})$') GROUP BY minute, process_name ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Топ вызовов по памяти (memory_peak)",
+      "description": "Конкретные вызовы CALL с максимальным пиком памяти за период: когда, кто, какой метод, сколько длился, пик и прирост памяти, CPU и трафик. Прямые виновники раздувания rphost. Учитывает $process_name и $usr.",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 38 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, usr, method_name, round(duration_us/1e6,1) AS dur_s, round(memory_peak/1048576,1) AS memory_peak_mb, round(memory/1048576,1) AS memory_mb, round(cpu_time_us/1e3,1) AS cpu_ms, round((in_bytes+out_bytes)/1048576,2) AS io_mb FROM tj.events WHERE event='CALL' AND ts >= $__fromTime AND ts <= $__toTime AND match(process_name, '^(${process_name:regex})$') AND match(usr, '^(${usr:regex})$') ORDER BY memory_peak DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Худшие вызовы за период (топ-50 по длительности)",
+      "description": "Самые долгие серверные вызовы: когда, кто, в каком сеансе и базе, какой метод, сколько секунд, CPU и пик памяти. Отправная точка разбора жалоб «висело N минут» — по ts/session_id дальше ищутся DBMSSQL/TLOCK того же сеанса. Учитывает $process_name и $usr.",
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 48 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": true } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, usr, session_id, process_name, method_name, round(duration_us/1e6,1) AS dur_s, round(cpu_time_us/1e3,1) AS cpu_ms, round(memory_peak/1048576,1) AS mem_peak_mb FROM tj.events WHERE event='CALL' AND ts >= $__fromTime AND ts <= $__toTime AND match(process_name, '^(${process_name:regex})$') AND match(usr, '^(${usr:regex})$') ORDER BY duration_us DESC LIMIT 50"
+        }
+      ]
+    }
+  ]
+}

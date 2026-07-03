@@ -1,0 +1,175 @@
+{
+  "uid": "tj-locks",
+  "title": "ТЖ 1С — Блокировки",
+  "tags": ["1c", "techlog", "perf"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": { "from": "2025-11-28T00:00:00.000Z", "to": "2025-12-01T00:00:00.000Z" },
+  "templating": {
+    "list": [
+      {
+        "name": "usr",
+        "label": "Пользователь",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+        "query": "SELECT usr FROM tj.agg_locks WHERE usr != '' GROUP BY usr ORDER BY sum(cnt) DESC LIMIT 200",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "refresh": 1,
+        "sort": 0,
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Ожидания по минутам",
+      "description": "Сколько секунд в минуту сеансы провели в ожидании управляемых блокировок (TLOCK — успешные ожидания, TTIMEOUT — таймауты, TDEADLOCK — взаимоблокировки), столбики с накоплением. Линия max_wait_s — максимальное одиночное ожидание в минуту: показывает пики, которые тонут в сумме. Отвечает на вопрос: когда были всплески конкуренции за блокировки?",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "bars", "fillOpacity": 60, "stacking": { "mode": "normal", "group": "A" } }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "max_wait_s" },
+            "properties": [
+              { "id": "custom.drawStyle", "value": "line" },
+              { "id": "custom.stacking", "value": { "mode": "none", "group": "A" } },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineWidth", "value": 2 },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, event, sum(wait_us_sum)/1e6 AS wait_s FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime AND match(usr, '^(${usr:regex})$') GROUP BY minute, event ORDER BY minute"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, max(wait_us_max)/1e6 AS max_wait_s FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime AND match(usr, '^(${usr:regex})$') GROUP BY minute ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Топ жертв",
+      "description": "Пользователи, которые больше всего ждали на блокировках: число ожиданий (waits), суммарное (total_wait_s) и максимальное (max_wait_s) время ожидания в секундах. Отвечает на вопрос: кто страдает от конкуренции за блокировки?",
+      "gridPos": { "h": 10, "w": 7, "x": 0, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT usr, sum(cnt) AS waits, round(sum(wait_us_sum)/1e6,1) AS total_wait_s, round(max(wait_us_max)/1e6,1) AS max_wait_s FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime AND usr != '' AND match(usr, '^(${usr:regex})$') GROUP BY usr ORDER BY total_wait_s DESC LIMIT 15"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Топ областей блокировок",
+      "description": "Области (пространства) управляемых блокировок, на которых суммарно потеряно больше всего времени: число ожиданий и суммарное ожидание в секундах. Отвечает на вопрос: за какие объекты (регистры, справочники) идёт борьба?",
+      "gridPos": { "h": 10, "w": 9, "x": 7, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT lock_regions_short AS lock_regions, sum(cnt) AS waits, round(sum(wait_us_sum)/1e6,1) AS total_wait_s FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime AND lock_regions_short != '' AND match(usr, '^(${usr:regex})$') GROUP BY lock_regions_short ORDER BY total_wait_s DESC LIMIT 15"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Где в коде ждём",
+      "description": "Строки кода 1С (последняя строка стека context_line), в которых сеансы ждали блокировку (сырые TLOCK): число ожиданий, суммарное и среднее ожидание в секундах. Отвечает на вопрос: какое место конфигурации порождает ожидания?",
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT context_line, count() AS waits, round(sum(duration_us)/1e6,1) AS total_wait_s, round(avg(duration_us)/1e6,2) AS avg_wait_s FROM tj.events WHERE event = 'TLOCK' AND context_line != '' AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') GROUP BY context_line ORDER BY total_wait_s DESC LIMIT 15"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Таймауты (TTIMEOUT)",
+      "description": "Каждый таймаут блокировки: кто ждал (usr, session_id, connect_id), сколько (wait_s), где в коде (context_line), на какой области (lock_regions) и какие соединения держали блокировку (culprit_connect_ids — подставьте их в рецепт панели «Кто держал блокировку»). Отвечает на вопрос: кто не дождался блокировки и кто был виновником?",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 19 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, usr, session_id, connect_id, round(duration_us/1e6,1) AS wait_s, context_line, substring(lock_regions,1,120) AS lock_regions, arrayStringConcat(arrayMap(x -> toString(x), lock_wait_conns), ',') AS culprit_connect_ids FROM tj.events WHERE event = 'TTIMEOUT' AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') ORDER BY ts DESC LIMIT 300"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Взаимоблокировки (TDEADLOCK)",
+      "description": "Все взаимоблокировки за период: кто попал (usr, session_id), где в коде (context_line) и граф взаимоблокировки (deadlock_graph, первые 300 символов — кто кого ждал). Отвечает на вопрос: какие сценарии приводят к взаимоблокировкам?",
+      "gridPos": { "h": 10, "w": 15, "x": 0, "y": 29 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, usr, session_id, context_line, substring(deadlock_graph,1,300) AS deadlock_graph FROM tj.events WHERE event = 'TDEADLOCK' AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') ORDER BY ts DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "text",
+      "title": "Кто держал блокировку",
+      "description": "Готовый SQL-рецепт drill-down: что делало соединение-виновник (culprit_connect_id из таблицы таймаутов) вокруг момента таймаута. Выполнять в ClickHouse (clickhouse-client или Explore).",
+      "gridPos": { "h": 10, "w": 9, "x": 15, "y": 29 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "options": {
+        "mode": "markdown",
+        "content": "Возьмите из таблицы «Таймауты (TTIMEOUT)» значение **culprit_connect_ids** и момент таймаута **ts**, подставьте их в запрос — увидите, чем был занят виновник (его вызовы, запросы СУБД и блокировки) за 5 минут до таймаута:\n\n```sql\nSELECT ts, event, usr, session_id,\n       round(duration_us/1e6, 2) AS dur_s,\n       method_name, context_line,\n       substring(sql_text, 1, 180) AS sql\nFROM tj.events\nWHERE connect_id = 5221642            -- culprit_connect_id\n  AND ts BETWEEN toDateTime64('2025-11-28 23:03:09', 6) - INTERVAL 5 MINUTE\n             AND toDateTime64('2025-11-28 23:03:09', 6) + INTERVAL 1 MINUTE\n  AND event IN ('CALL','DBMSSQL','SDBL','TLOCK','EXCP')\nORDER BY ts\nLIMIT 500\n```\n\nДлинная транзакция виновника обычно видна как CALL/DBMSSQL с большим `dur_s` непосредственно перед таймаутом. Несколько id в `culprit_connect_ids` — проверьте каждый."
+      },
+      "targets": []
+    }
+  ]
+}
