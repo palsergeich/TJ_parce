@@ -1,0 +1,132 @@
+{
+  "uid": "tj-errors",
+  "title": "ТЖ 1С — Ошибки",
+  "description": "Ошибки запросов (QERR) и исключения (EXCP) по данным техножурнала: динамика, топы, последние случаи.",
+  "tags": ["1c", "techlog", "perf"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": { "from": "2025-11-28T00:00:00.000Z", "to": "2025-12-01T00:00:00.000Z" },
+  "templating": {
+    "list": [
+      {
+        "name": "usr",
+        "label": "Пользователь",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+        "definition": "SELECT usr FROM tj.agg_context WHERE usr != '' GROUP BY usr ORDER BY sum(cnt) DESC LIMIT 200",
+        "query": {
+          "rawSql": "SELECT usr FROM tj.agg_context WHERE usr != '' GROUP BY usr ORDER BY sum(cnt) DESC LIMIT 200",
+          "queryType": "sql",
+          "refId": "ClickHouseVariableQuery",
+          "format": 1
+        },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 1,
+        "sort": 0,
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Ошибки по минутам (QERR / EXCP)",
+      "description": "Сколько ошибок запросов (QERR) и исключений (EXCP) фиксировалось в каждую минуту. Всплески сопоставляйте с нагрузкой и блокировками на обзорном дашборде. У ~88% EXCP пользователь в ТЖ не заполнен — при выборе конкретного пользователя такие события отфильтровываются.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 1 }, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT toStartOfMinute(ts) AS time, event, count() AS cnt FROM tj.events WHERE event IN ('QERR','EXCP') AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') GROUP BY time, event ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Топ-20 ошибок запросов (QERR)",
+      "description": "Самые частые ошибки запросов, сгруппированные по тексту ошибки и месту в коде (context_line): сколько раз повторились, пример текста запроса. У большинства QERR текст ошибки в ТЖ пуст — тогда ориентируйтесь на место кода и пример запроса. Фильтруется по пользователю.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": false } }, "overrides": [] },
+      "options": { "sortBy": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "WITH top AS (SELECT substringUTF8(descr, 1, 200) AS error, context_line AS context, count() AS cnt, min(ts) AS sample_ts FROM tj.events WHERE event = 'QERR' AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') GROUP BY error, context ORDER BY cnt DESC LIMIT 20) SELECT if(t.error = '', '(нет текста ошибки)', t.error) AS error, t.cnt AS cnt, substringUTF8(any(e.sql_text), 1, 150) AS query_sample, t.context AS context_line FROM top AS t LEFT JOIN (SELECT substringUTF8(descr, 1, 200) AS error, context_line AS context, sql_text FROM tj.events WHERE event = 'QERR' AND ts IN (SELECT sample_ts FROM top)) AS e ON e.error = t.error AND e.context = t.context GROUP BY t.error, t.cnt, t.context ORDER BY cnt DESC"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Топ-20 исключений (EXCP)",
+      "description": "Самые частые типы исключений серверных процессов: класс исключения, число повторов и пример описания. Помните: у ~88% EXCP пользователь не заполнен — при фильтре по конкретному пользователю большинство исключений скрывается.",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 17 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": false } }, "overrides": [] },
+      "options": { "sortBy": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT if(exception = '', '(не указано)', exception) AS exception, count() AS cnt, substringUTF8(any(descr), 1, 200) AS descr_sample FROM tj.events WHERE event = 'EXCP' AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') GROUP BY exception ORDER BY cnt DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Последние 50 QERR",
+      "description": "Последние ошибки запросов: когда, у какого пользователя, текст ошибки и место в коде (context_line). Для разбора конкретного случая. Фильтруется по пользователю.",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": false } }, "overrides": [] },
+      "options": { "sortBy": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, usr, substringUTF8(descr, 1, 200) AS descr, context_line FROM tj.events WHERE event = 'QERR' AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') ORDER BY ts DESC LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Последние 50 EXCP",
+      "description": "Последние исключения: когда, в какой ИБ (process), класс исключения и описание. Для разбора конкретного случая. Фильтр по пользователю применяется, но у ~88% EXCP пользователь пуст — с фильтром «All» видны все.",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": false } }, "overrides": [] },
+      "options": { "sortBy": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, process_name AS process, exception, substringUTF8(descr, 1, 200) AS descr FROM tj.events WHERE event = 'EXCP' AND ts >= $__fromTime AND ts <= $__toTime AND match(usr, '^(${usr:regex})$') ORDER BY ts DESC LIMIT 50"
+        }
+      ]
+    }
+  ]
+}

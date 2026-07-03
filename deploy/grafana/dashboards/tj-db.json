@@ -1,0 +1,537 @@
+{
+  "uid": "tj-db",
+  "title": "ТЖ 1С — СУБД (DBMSSQL)",
+  "description": "Куда уходит время СУБД и из какой строки кода 1С оно рождается. Архив ТЖ 2025-11-28..2025-11-30.",
+  "tags": [
+    "1c",
+    "techlog",
+    "perf"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "time": {
+    "from": "2025-11-28T00:00:00.000Z",
+    "to": "2025-12-01T00:00:00.000Z"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "process_name",
+        "label": "Информационная база",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-tj"
+        },
+        "definition": "SELECT DISTINCT process_name FROM tj.agg_minute WHERE process_name != '' ORDER BY 1",
+        "query": {
+          "refId": "process_name_var",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT DISTINCT process_name FROM tj.agg_minute WHERE process_name != '' ORDER BY 1"
+        },
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 1,
+        "sort": 0,
+        "hide": 0
+      },
+      {
+        "name": "usr",
+        "label": "Пользователь",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-tj"
+        },
+        "definition": "SELECT usr FROM tj.agg_context WHERE usr != '' GROUP BY usr ORDER BY sum(cnt) DESC LIMIT 200",
+        "query": {
+          "refId": "usr_var",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT usr FROM tj.agg_context WHERE usr != '' GROUP BY usr ORDER BY sum(cnt) DESC LIMIT 200"
+        },
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 1,
+        "sort": 0,
+        "hide": 0
+      },
+      {
+        "name": "db_name",
+        "label": "База данных (СУБД)",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-tj"
+        },
+        "definition": "SELECT DISTINCT db_name FROM tj.agg_query WHERE db_name != ''",
+        "query": {
+          "refId": "db_name_var",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT DISTINCT db_name FROM tj.agg_query WHERE db_name != ''"
+        },
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [],
+        "refresh": 1,
+        "sort": 0,
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Время СУБД по минутам",
+      "description": "Сколько времени СУБД сжигает кластер: busy_workers = сумма длительностей DBMSSQL за минуту / 60 сек (эквивалент постоянно занятых соединений), p95_s = 95-й перцентиль длительности запроса (сек), queries_per_min = число запросов в минуту (правая ось). Источник: tj.agg_minute; применяется только фильтр «Информационная база» (в agg_minute нет usr/db_name).",
+      "gridPos": {
+        "h": 9,
+        "w": 14,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "queries_per_min"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 25
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "max",
+            "mean"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, round(sum(dur_sum)/60e6, 2) AS busy_workers, round(quantilesTDigestMerge(0.5, 0.95, 0.99)(dur_q)[2]/1e6, 2) AS p95_s, sum(cnt) AS queries_per_min FROM tj.agg_minute WHERE event = 'DBMSSQL' AND minute >= $__fromTime AND minute <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) GROUP BY minute ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Профиль по базам",
+      "description": "На какие базы данных (db_name) уходит время СУБД в выбранном интервале: вызовы, суммарные секунды и доля от общего времени DBMSSQL. Отвечает на вопрос «какая ИБ грузит SQL-сервер».",
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 14,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT db_name, count() AS calls, round(sum(duration_us)/1e6, 1) AS total_s, round(100 * sum(duration_us) / (SELECT sum(duration_us) FROM tj.events WHERE event = 'DBMSSQL' AND ts >= $__fromTime AND ts <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) AND $__conditionalAll(usr IN (${usr:singlequote}), $usr) AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name)), 1) AS pct FROM tj.events WHERE event = 'DBMSSQL' AND ts >= $__fromTime AND ts <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) AND $__conditionalAll(usr IN (${usr:singlequote}), $usr) AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) GROUP BY db_name ORDER BY total_s DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Из каких строк кода 1С рождается время СУБД",
+      "description": "КЛЮЧЕВАЯ ПАНЕЛЬ. Время СУБД, сгруппированное по последней строке контекста 1С (context_line = точка кода, породившая запрос): вызовы, суммарные секунды, доля от всего времени DBMSSQL, средняя длительность и число уникальных текстов SQL из этой строки. Только события с заполненным контекстом (~60% DBMSSQL). Именно сюда смотреть, чтобы понять, какой код чинить.",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT trim(BOTH ' \\t' FROM context_line) AS context_line, count() AS calls, round(sum(duration_us)/1e6, 1) AS total_s, round(100 * sum(duration_us) / (SELECT sum(duration_us) FROM tj.events WHERE event = 'DBMSSQL' AND ts >= $__fromTime AND ts <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) AND $__conditionalAll(usr IN (${usr:singlequote}), $usr) AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name)), 1) AS pct, round(sum(duration_us)/count()/1e3, 1) AS avg_ms, uniqExact(sql_hash) AS uniq_sql FROM tj.events WHERE event = 'DBMSSQL' AND context_line != '' AND ts >= $__fromTime AND ts <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) AND $__conditionalAll(usr IN (${usr:singlequote}), $usr) AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) GROUP BY context_line ORDER BY sum(duration_us) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Топ запросов по суммарному времени",
+      "description": "Топ-20 нормализованных SQL-запросов (sql_hash) по суммарному времени за период: число вызовов, total_s, доля, среднее (мс), максимум (сек), возвращённые строки, образец текста SQL и строка кода 1С. Источник: tj.agg_query (почасовой роллап); применяется только фильтр по db_name (в agg_query нет usr/process_name).",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pct"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "gradient"
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT hex(sql_hash) AS sql_hash_hex, sum(cnt) AS calls, round(sum(dur_sum)/1e6, 1) AS total_s, round(100 * sum(dur_sum) / (SELECT sum(dur_sum) FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name)), 1) AS pct, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms, round(max(dur_max)/1e6, 2) AS max_s, sum(rows_sum) AS rows_sum, substring(anyLast(sql_sample), 1, 160) AS sql, trim(BOTH ' \\t' FROM anyLast(context_sample)) AS context_line FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) AND sql_hash IN (SELECT sql_hash FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) GROUP BY sql_hash ORDER BY sum(dur_sum) DESC LIMIT 20) GROUP BY sql_hash ORDER BY sum(dur_sum) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Долгие запросы",
+      "description": "Топ-50 самых долгих отдельных выполнений DBMSSQL за период: когда, кто, к какой базе, сколько секунд, сколько строк вернул, текст SQL (первые 200 символов) и строка кода 1С. Для разбора конкретных инцидентов «висело N секунд».",
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, usr, db_name, round(duration_us/1e6, 2) AS dur_s, rows_ret, substring(sql_text, 1, 200) AS sql, trim(BOTH ' \\t' FROM context_line) AS context_line FROM tj.events WHERE event = 'DBMSSQL' AND ts >= $__fromTime AND ts <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) AND $__conditionalAll(usr IN (${usr:singlequote}), $usr) AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) ORDER BY duration_us DESC LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Ошибки запросов (QERR) по минутам",
+      "description": "Частота ошибок выполнения запросов СУБД (событие QERR) в минуту. Всплеск = массовые ошибки (deadlock victim, конфликты, таймауты на уровне СУБД, синтаксис).",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 42
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "max",
+            "mean"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT toStartOfMinute(ts) AS time, count() AS errors FROM tj.events WHERE event = 'QERR' AND ts >= $__fromTime AND ts <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) AND $__conditionalAll(usr IN (${usr:singlequote}), $usr) GROUP BY time ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Топ-10 строк кода по ошибкам запросов (QERR)",
+      "description": "Какие строки кода 1С чаще всего порождают ошибки запросов СУБД за период, и сколько разных пользователей затронуто.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 42
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT trim(BOTH ' \\t' FROM context_line) AS context_line, count() AS errors, uniqExact(usr) AS uniq_users FROM tj.events WHERE event = 'QERR' AND context_line != '' AND ts >= $__fromTime AND ts <= $__toTime AND $__conditionalAll(process_name IN (${process_name:singlequote}), $process_name) AND $__conditionalAll(usr IN (${usr:singlequote}), $usr) GROUP BY context_line ORDER BY errors DESC LIMIT 10"
+        }
+      ]
+    }
+  ]
+}

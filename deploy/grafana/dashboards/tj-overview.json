@@ -1,112 +1,244 @@
 {
   "uid": "tj-overview",
-  "title": "ТЖ 1С — Обзор кластера",
-  "tags": ["1c", "techlog"],
-  "timezone": "browser",
+  "title": "ТЖ 1С — Производительность: обзор",
+  "description": "Обзор здоровья кластера 1С по данным техножурнала: нагрузка, отклик, блокировки, топ потребителей.",
+  "tags": ["1c", "techlog", "perf"],
+  "timezone": "utc",
   "schemaVersion": 39,
   "version": 1,
-  "refresh": "1m",
+  "refresh": "",
   "time": { "from": "2025-11-28T00:00:00.000Z", "to": "2025-12-01T00:00:00.000Z" },
+  "templating": {
+    "list": [
+      {
+        "name": "process_name",
+        "label": "Информационная база",
+        "type": "query",
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+        "definition": "SELECT DISTINCT process_name FROM tj.agg_minute WHERE process_name != '' ORDER BY 1",
+        "query": {
+          "rawSql": "SELECT DISTINCT process_name FROM tj.agg_minute WHERE process_name != '' ORDER BY 1",
+          "queryType": "sql",
+          "refId": "ClickHouseVariableQuery",
+          "format": 1
+        },
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "refresh": 1,
+        "sort": 0,
+        "current": { "selected": true, "text": ["All"], "value": ["$__all"] },
+        "options": []
+      }
+    ]
+  },
   "panels": [
     {
       "id": 1,
-      "type": "timeseries",
-      "title": "События в минуту (по типам)",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "type": "stat",
+      "title": "Серверное время CALL, ч",
+      "description": "Сколько часов серверного времени (суммарная длительность вызовов CALL) потрачено за выбранный период. Главная мера нагрузки на rphost. Фильтруется по ИБ.",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 12 } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "decimals": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "orientation": "auto" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
           "queryType": "sql",
-          "format": 0,
-          "rawSql": "SELECT minute AS time, event, sum(cnt) AS events FROM tj.agg_minute WHERE minute >= $__fromTime AND minute <= $__toTime GROUP BY minute, event ORDER BY minute"
+          "format": 1,
+          "rawSql": "SELECT round(sum(dur_sum)/3.6e9, 1) AS call_hours FROM tj.agg_minute WHERE event = 'CALL' AND minute >= $__fromTime AND minute <= $__toTime AND match(process_name, '^(${process_name:regex})$')"
         }
       ]
     },
     {
       "id": 2,
-      "type": "timeseries",
-      "title": "Суммарная длительность, сек/мин (по типам)",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "type": "stat",
+      "title": "Время СУБД, ч",
+      "description": "Сколько часов суммарно заняло выполнение запросов СУБД (DBMSSQL и аналоги). Сравните с серверным временем CALL: большая доля = кластер ждёт базу данных. Фильтруется по ИБ.",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 12 }, "unit": "s" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "decimals": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "orange", "value": null }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "orientation": "auto" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
           "queryType": "sql",
-          "format": 0,
-          "rawSql": "SELECT minute AS time, event, sum(dur_sum) / 1e6 AS seconds FROM tj.agg_minute WHERE minute >= $__fromTime AND minute <= $__toTime GROUP BY minute, event ORDER BY minute"
+          "format": 1,
+          "rawSql": "SELECT round(sum(dur_sum)/3.6e9, 1) AS db_hours FROM tj.agg_minute WHERE event IN ('DBMSSQL','DBPOSTGRS','DBORACLE','DB2') AND minute >= $__fromTime AND minute <= $__toTime AND match(process_name, '^(${process_name:regex})$')"
         }
       ]
     },
     {
       "id": 3,
-      "type": "table",
-      "title": "Топ-20 контекстов по суммарной длительности",
-      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 9 },
+      "type": "stat",
+      "title": "Ожидания на блокировках, мин",
+      "description": "Суммарное время ожидания управляемых блокировок (TLOCK/TTIMEOUT/TDEADLOCK) в минутах за период. Фильтр по ИБ не применяется (агрегат блокировок не содержит имени ИБ).",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "fieldConfig": { "defaults": { "decimals": 1, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 10 }, { "color": "red", "value": 60 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "orientation": "auto" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
           "queryType": "sql",
           "format": 1,
-          "rawSql": "SELECT anyLast(context_line) AS context, sum(cnt) AS calls, round(sum(dur_sum)/1e6, 1) AS total_sec, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms, round(sum(cpu_sum)/1e6, 1) AS cpu_sec FROM tj.agg_context WHERE period >= $__fromTime AND period <= $__toTime GROUP BY context_hash ORDER BY sum(dur_sum) DESC LIMIT 20"
+          "rawSql": "SELECT round(sum(wait_us_sum)/6e7, 1) AS lock_wait_min FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime"
         }
       ]
     },
     {
       "id": 4,
-      "type": "table",
-      "title": "Долгие запросы СУБД (топ-20)",
-      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 9 },
+      "type": "stat",
+      "title": "Таймауты блокировок (TTIMEOUT)",
+      "description": "Число вызовов, завершившихся ошибкой по таймауту ожидания управляемой блокировки. Каждый таймаут — ошибка у пользователя. Фильтр по ИБ не применяется.",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "orientation": "auto" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
           "queryType": "sql",
           "format": 1,
-          "rawSql": "SELECT dbms, db_name, substring(anyLast(sql_sample), 1, 200) AS sql, sum(cnt) AS calls, round(max(dur_max)/1e6, 2) AS max_sec, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime GROUP BY dbms, db_name, sql_hash ORDER BY sum(dur_sum) DESC LIMIT 20"
+          "rawSql": "SELECT sum(cnt) AS timeouts FROM tj.agg_locks WHERE event = 'TTIMEOUT' AND minute >= $__fromTime AND minute <= $__toTime"
         }
       ]
     },
     {
       "id": 5,
-      "type": "timeseries",
-      "title": "Ожидания на блокировках, сек/мин",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 19 },
+      "type": "stat",
+      "title": "Взаимоблокировки (TDEADLOCK)",
+      "description": "Число обнаруженных взаимоблокировок (deadlock) за период. Любое значение больше нуля требует разбора: см. дашборд блокировок. Фильтр по ИБ не применяется.",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
-      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 }, "unit": "s" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "orientation": "auto" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT sum(cnt) AS deadlocks FROM tj.agg_locks WHERE event = 'TDEADLOCK' AND minute >= $__fromTime AND minute <= $__toTime"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Ошибки запросов (QERR)",
+      "description": "Число ошибок выполнения запросов 1С (QERR) за период. Детализация — на дашборде «ТЖ 1С — Ошибки». Фильтруется по ИБ.",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "value", "graphMode": "none", "orientation": "auto" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT sum(cnt) AS qerr_count FROM tj.agg_minute WHERE event = 'QERR' AND minute >= $__fromTime AND minute <= $__toTime AND match(process_name, '^(${process_name:regex})$')"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Нагрузка кластера: занятые потоки",
+      "description": "Сколько рабочих потоков rphost в среднем было занято в каждую минуту: busy_workers = сумма длительностей CALL за минуту / 60 с; db_busy — из них время, проведённое в СУБД (сумма длительностей DBMSSQL / 60 с). Разрыв между линиями = серверный код 1С; чем ближе db_busy к busy_workers, тем больше доля СУБД в серверном времени.",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 15, "lineWidth": 1 }, "decimals": 1 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
           "queryType": "sql",
           "format": 0,
-          "rawSql": "SELECT minute AS time, event, sum(wait_us_sum) / 1e6 AS wait_sec FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime GROUP BY minute, event ORDER BY minute"
+          "rawSql": "SELECT minute AS time, round(sumIf(dur_sum, event = 'CALL')/60e6, 2) AS busy_workers, round(sumIf(dur_sum, event != 'CALL')/60e6, 2) AS db_busy FROM tj.agg_minute WHERE event IN ('CALL','DBMSSQL','DBPOSTGRS','DBORACLE','DB2') AND minute >= $__fromTime AND minute <= $__toTime AND match(process_name, '^(${process_name:regex})$') GROUP BY minute ORDER BY minute"
         }
       ]
     },
     {
-      "id": 6,
-      "type": "table",
-      "title": "Последние исключения (EXCP)",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 19 },
+      "id": 8,
+      "type": "timeseries",
+      "title": "Отклик серверных вызовов (CALL), сек",
+      "description": "Перцентили длительности серверных вызовов по минутам: p50 — типичный отклик, p95/p99 — хвост медленных вызовов. Рост p95/p99 при стабильном p50 — признак точечных проблем (блокировки, тяжёлые запросы).",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
       "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
-      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "lineWidth": 1 }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, round(q[1]/1e6, 3) AS p50_s, round(q[2]/1e6, 3) AS p95_s, round(q[3]/1e6, 3) AS p99_s FROM (SELECT minute, quantilesTDigestMerge(0.5, 0.95, 0.99)(dur_q) AS q FROM tj.agg_minute WHERE event = 'CALL' AND minute >= $__fromTime AND minute <= $__toTime AND match(process_name, '^(${process_name:regex})$') GROUP BY minute) ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Ожидания на блокировках, сек/мин",
+      "description": "Суммарное время ожидания управляемых блокировок за каждую минуту, с разбивкой по типу события: TLOCK — обычные ожидания, TTIMEOUT — ожидания, завершившиеся таймаутом, TDEADLOCK — взаимоблокировки. Фильтр по ИБ не применяется (агрегат не содержит имени ИБ).",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 80, "lineWidth": 0, "stacking": { "mode": "normal", "group": "A" } }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, event, round(sum(wait_us_sum)/1e6, 2) AS wait_s FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime GROUP BY minute, event ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Топ-10 контекстов по серверному времени",
+      "description": "Какие места кода 1С (context_line — последняя строка стека) съели больше всего серверного времени CALL за период: число вызовов, суммарные секунды и доля от всего серверного времени с контекстом. Фильтруется по ИБ.",
+      "gridPos": { "h": 10, "w": 14, "x": 0, "y": 21 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": false } }, "overrides": [{ "matcher": { "id": "byName", "options": "pct" }, "properties": [{ "id": "unit", "value": "percent" }] }] },
+      "options": { "sortBy": [] },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
           "queryType": "sql",
           "format": 1,
-          "rawSql": "SELECT ts, usr, process_name, exception, substring(descr, 1, 200) AS descr FROM tj.events WHERE event = 'EXCP' AND ts >= $__fromTime AND ts <= $__toTime ORDER BY ts DESC LIMIT 20"
+          "rawSql": "SELECT anyLast(context_line) AS context_line, count() AS calls, round(sum(duration_us)/1e6, 1) AS total_s, round(100 * sum(duration_us) / max2(sum(sum(duration_us)) OVER (), 1), 1) AS pct FROM tj.events WHERE event = 'CALL' AND context_hash != 0 AND ts >= $__fromTime AND ts <= $__toTime AND match(process_name, '^(${process_name:regex})$') GROUP BY context_hash ORDER BY total_s DESC LIMIT 10"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Топ-10 пользователей по серверному времени",
+      "description": "Кто из пользователей создал наибольшую нагрузку: суммарное серверное время CALL (сек), число вызовов и доля от общего времени всех пользователей. Фильтруется по ИБ.",
+      "gridPos": { "h": 10, "w": 10, "x": 14, "y": 21 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "filterable": false } }, "overrides": [{ "matcher": { "id": "byName", "options": "pct" }, "properties": [{ "id": "unit", "value": "percent" }] }] },
+      "options": { "sortBy": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT usr, round(sum(duration_us)/1e6, 1) AS total_s, count() AS calls, round(100 * sum(duration_us) / max2(sum(sum(duration_us)) OVER (), 1), 1) AS pct FROM tj.events WHERE event = 'CALL' AND usr != '' AND ts >= $__fromTime AND ts <= $__toTime AND match(process_name, '^(${process_name:regex})$') GROUP BY usr ORDER BY total_s DESC LIMIT 10"
         }
       ]
     }
