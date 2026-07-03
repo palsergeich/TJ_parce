@@ -20,7 +20,7 @@
 - [x] Протокол bake-off и тест-стратегия → [docs/bakeoff-protocol.md](docs/bakeoff-protocol.md)
 - [x] Спецификация формата v1.0 (draft) → [docs/format-spec.md](docs/format-spec.md)
 - [x] `git init` + первый коммит (`c0c9caa`)
-- [x] VS Build Tools 2022 (MSVC 19.44) установлен; сборка: `cl /O2 /GL /arch:AVX2 /DNOMINMAX` ⏳ CMake/rustup/hyperfine доустанавливаются
+- [x] Тулчейны: VS Build Tools 2022 (MSVC 19.44), CMake 4.3, rustup, hyperfine; сборка ядра: `cl /O2 /GL /arch:AVX2 /DNOMINMAX`
 - [x] **Починены критичные баги ядра**: KI-2 (строгая грамматика чисел + канонизация duration), KI-5 (дренаж очереди + exit-код при ошибке writer), KI-6 (пропуск входного BOM — вернул +1 событие на файл: 21307 против 21112 на CallsDiag_86), KI-7 (убран выходной BOM), KI-8 (валидация workers), KI-12 (счётчик ошибок mmap + exit 2)
 - [x] Golden-тесты: 19 кейсов (12 синтетических + 7 реальных), 18 PASS + 1 XFAIL (KI-1), эталоны зафиксированы, все 1501 строка — валидный JSON; раннер `tests/golden/run_golden.ps1`
 
@@ -29,13 +29,15 @@
 - [x] ClickHouse поднят, схема применена и проверена вживую (все 4 MV работают). Native-порт хоста: **9001**
 - [x] Импортёр `deploy/importer/import-jsonl.ps1`: NDJSON → `tj.events` целиком на SQL ClickHouse (JSONAsString + JSONExtract), проверен на сэмпле CallsDiag_86 (21112 строк = 21112 строк в БД, горячие колонки и props корректны). Найдено и починено: `CLICKHOUSE_SKIP_USER_SETUP` (доступ с хоста), TTL по умолчанию 3650 дней (30-дневный молча удалял импортированный архив)
 - [x] Grafana provisioning: datasource ClickHouse + дашборд «Обзор кластера» (6 панелей) — проверить вживую после полной заливки
-- [ ] Залить полный архив E:\TJ_Logs (новым exe), проверить объёмы/сжатие против оценок (~12–18×)
+- [x] Полный архив залит: **121 485 342 события за 33 мин**, на диске 5.59 ГиБ (сжатие **27×** против несжатых 152 ГиБ — лучше оценки 12–18×). Grafana: datasource OK, дашборд отвечает реальными данными (стартовый период выставлен на архив 28.11–01.12.2025)
+- [x] Память укрощена: `.wslconfig` (потолок WSL 10 ГБ, autoMemoryReclaim) + `mem_limit: 6g` для ClickHouse — виртуалка ужалась с 15.8 до ~5 ГБ
 - [ ] Смоук сравнения периодов на данных 28–30.11.2025
 
 ## Фаза 2 — bake-off агентов (Go / Rust / C++)
 
+- [x] **Go-участник готов** (`agents/go`): 18 PASS golden, байт-в-байт с C++ ядром на реальных коллекциях, детерминизм при любом workers, OOM-риск найден и закрыт верификацией. Спека дозрела до rev 3 по итогам независимой реализации
 - [ ] Вынести ядро: `cpp_parse` → `core/` (библиотека + тонкий CLI, C ABI для FFI) — план в normalizer-source-map «Что нужно для превращения в ядро агента»
-- [ ] Реализовать трёх участников с единым CLI-контрактом (`--input --threads --sink {null|file|clickhouse} --follow`)
+- [ ] Rust-участник и C++-участник с единым CLI-контрактом (`--input --threads --sink {null|file|clickhouse} --follow`)
 - [ ] Гейт корректности: golden + integration + tail-тесты (допуск к замерам)
 - [ ] Серии замеров по протоколу (bench-medium 5.4 ГБ → финалисты на полных 175 ГБ)
 - [ ] Решение → `docs/decision-record.md`
