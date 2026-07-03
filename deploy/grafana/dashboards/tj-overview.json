@@ -1,0 +1,114 @@
+{
+  "uid": "tj-overview",
+  "title": "ТЖ 1С — Обзор кластера",
+  "tags": ["1c", "techlog"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "События в минуту (по типам)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 12 } }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, event, sum(cnt) AS events FROM tj.agg_minute WHERE minute >= $__fromTime AND minute <= $__toTime GROUP BY minute, event ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Суммарная длительность, сек/мин (по типам)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 12 }, "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, event, sum(dur_sum) / 1e6 AS seconds FROM tj.agg_minute WHERE minute >= $__fromTime AND minute <= $__toTime GROUP BY minute, event ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Топ-20 контекстов по суммарной длительности",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT anyLast(context_line) AS context, sum(cnt) AS calls, round(sum(dur_sum)/1e6, 1) AS total_sec, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms, round(sum(cpu_sum)/1e6, 1) AS cpu_sec FROM tj.agg_context WHERE period >= $__fromTime AND period <= $__toTime GROUP BY context_hash ORDER BY sum(dur_sum) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Долгие запросы СУБД (топ-20)",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT dbms, db_name, substring(anyLast(sql_sample), 1, 200) AS sql, sum(cnt) AS calls, round(max(dur_max)/1e6, 2) AS max_sec, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime GROUP BY dbms, db_name, sql_hash ORDER BY sum(dur_sum) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Ожидания на блокировках, сек/мин",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 }, "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT minute AS time, event, sum(wait_us_sum) / 1e6 AS wait_sec FROM tj.agg_locks WHERE minute >= $__fromTime AND minute <= $__toTime GROUP BY minute, event ORDER BY minute"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Последние исключения (EXCP)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse-tj" },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT ts, usr, process_name, exception, substring(descr, 1, 200) AS descr FROM tj.events WHERE event = 'EXCP' AND ts >= $__fromTime AND ts <= $__toTime ORDER BY ts DESC LIMIT 20"
+        }
+      ]
+    }
+  ]
+}

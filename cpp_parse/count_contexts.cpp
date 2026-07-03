@@ -10,6 +10,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
 #include <immintrin.h> // AVX2
 #include <condition_variable>
 #include <memory>
@@ -474,22 +475,40 @@ struct EventBatch {
     }
 };
 
-// Быстрая проверка, является ли строка числом
+// Быстрая проверка, является ли строка числом.
+// KI-2: строгая грамматика JSON-числа (RFC 8259): -?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?
+// Версии вида "8.3.22.1704", "1-2", ".5", "0.", "007" — строки, иначе выход не парсится как JSON.
 inline bool is_number_token(std::string_view val) {
     if (val.empty() || val.length() > 32) return false;
-    
-    // Проверяем недопустимый ведущий ноль (кроме "0" и "0.123")
-    if (val.length() > 1 && val[0] == '0' && val[1] != '.') {
-        return false; // "050411" — не число, это строка
-    }
-    
-    bool has_digit = false;
-    for (char c : val) {
-        if (c >= '0' && c <= '9') { has_digit = true; continue; }
-        if (c == '-' || c == '.') continue;
+
+    size_t i = 0;
+    if (val[i] == '-') { if (++i == val.size()) return false; }
+
+    // Целая часть: 0 или [1-9][0-9]*
+    if (val[i] == '0') {
+        ++i;
+    } else if (val[i] >= '1' && val[i] <= '9') {
+        while (i < val.size() && val[i] >= '0' && val[i] <= '9') ++i;
+    } else {
         return false;
     }
-    return has_digit && val != "." && val != "-";
+
+    // Дробная часть
+    if (i < val.size() && val[i] == '.') {
+        ++i;
+        if (i == val.size() || val[i] < '0' || val[i] > '9') return false;
+        while (i < val.size() && val[i] >= '0' && val[i] <= '9') ++i;
+    }
+
+    // Экспонента
+    if (i < val.size() && (val[i] == 'e' || val[i] == 'E')) {
+        ++i;
+        if (i < val.size() && (val[i] == '+' || val[i] == '-')) ++i;
+        if (i == val.size() || val[i] < '0' || val[i] > '9') return false;
+        while (i < val.size() && val[i] >= '0' && val[i] <= '9') ++i;
+    }
+
+    return i == val.size();
 }
 
 // Проверка: должно ли поле всегда быть строкой (независимо от содержимого)
@@ -628,6 +647,11 @@ public:
 // Глобальный mutex для вывода
 static std::mutex g_cout_mutex;
 
+// KI-5: флаг фатальной ошибки писателя (main обязан вернуть ненулевой код, а не зависнуть)
+static std::atomic<bool> g_writer_failed{false};
+// KI-12: счётчик файлов, которые не удалось открыть/замапить
+static std::atomic<size_t> g_failed_files{0};
+
 // Установка кодировки консоли на UTF-8 для Windows
 #ifdef _WIN32
 #include <io.h>
@@ -689,10 +713,20 @@ void setup_console_utf8() {
 
 
 // Поток-писатель: пишет JSON строки в файл порциями
+// KI-5: при фатальной ошибке писатель обязан дренировать очередь,
+// иначе разборщики навсегда блокируются в push() и процесс виснет
+static void drain_output_queue(OptimizedQueue<std::string>& output_queue) {
+    std::vector<std::string> batch;
+    batch.reserve(5000);
+    while (output_queue.pop_batch(batch, 5000) != 0) {
+        batch.clear();
+    }
+}
+
 void writer_thread(
     OptimizedQueue<std::string>& output_queue,
     const fs::path& output_file) {
-    
+
     try {
         // Создаем директории, если путь задан (и директория отсутствует)
         try {
@@ -700,23 +734,29 @@ void writer_thread(
                 fs::create_directories(output_file.parent_path());
             }
         } catch (const std::exception& e) {
-            std::lock_guard<std::mutex> lock(g_cout_mutex);
-            std::cerr << "[Writer] ОШИБКА: не удалось создать директории для файла: " 
-                      << output_file << " (" << e.what() << ")" << std::endl;
+            {
+                std::lock_guard<std::mutex> lock(g_cout_mutex);
+                std::cerr << "[Writer] ОШИБКА: не удалось создать директории для файла: "
+                          << output_file << " (" << e.what() << ")" << std::endl;
+            }
+            g_writer_failed = true;
+            drain_output_queue(output_queue);
             return;
         }
 
         std::ofstream out(output_file, std::ios::binary | std::ios::out);
         if (!out) {
-            std::lock_guard<std::mutex> lock(g_cout_mutex);
-            std::cerr << "[Writer] ОШИБКА: не удалось открыть файл для записи: " << output_file << std::endl;
+            {
+                std::lock_guard<std::mutex> lock(g_cout_mutex);
+                std::cerr << "[Writer] ОШИБКА: не удалось открыть файл для записи: " << output_file << std::endl;
+            }
+            g_writer_failed = true;
+            drain_output_queue(output_queue);
             return;
         }
 
-        // Пишем UTF-8 BOM, чтобы Windows-редакторы корректно определяли кодировку
-        const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
-        out.write(reinterpret_cast<const char*>(bom), 3);
-        
+        // KI-7: BOM в выходной NDJSON не пишем — jq/ClickHouse/Elastic его не переваривают
+
         // Ручной буфер для плавной записи (32 МБ)
         std::string write_buffer;
         write_buffer.reserve(32 * 1024 * 1024);
@@ -745,10 +785,17 @@ void writer_thread(
         if (!write_buffer.empty()) {
             out.write(write_buffer.data(), write_buffer.size());
         }
-        
+
         // Получаем размер файла
         size_t final_size = static_cast<size_t>(out.tellp());
         out.close();
+
+        // KI-5: ошибка записи (диск полон и т.п.) должна дать ненулевой exit-код
+        if (out.fail()) {
+            std::lock_guard<std::mutex> lock(g_cout_mutex);
+            std::cerr << "[Writer] ОШИБКА записи в файл (диск полон?): " << output_file << std::endl;
+            g_writer_failed = true;
+        }
         
         std::lock_guard<std::mutex> lock(g_cout_mutex);
         if (final_size == 0) {
@@ -767,11 +814,19 @@ void writer_thread(
         std::cout << std::endl;
         
     } catch (const std::exception& e) {
-        std::lock_guard<std::mutex> lock(g_cout_mutex);
-        std::cerr << "[Writer] ОШИБКА: " << e.what() << std::endl;
+        {
+            std::lock_guard<std::mutex> lock(g_cout_mutex);
+            std::cerr << "[Writer] ОШИБКА: " << e.what() << std::endl;
+        }
+        g_writer_failed = true;
+        drain_output_queue(output_queue); // KI-5: не оставляем разборщиков заблокированными
     } catch (...) {
-        std::lock_guard<std::mutex> lock(g_cout_mutex);
-        std::cerr << "[Writer] НЕИЗВЕСТНАЯ ОШИБКА" << std::endl;
+        {
+            std::lock_guard<std::mutex> lock(g_cout_mutex);
+            std::cerr << "[Writer] НЕИЗВЕСТНАЯ ОШИБКА" << std::endl;
+        }
+        g_writer_failed = true;
+        drain_output_queue(output_queue);
     }
 }
 
@@ -805,6 +860,7 @@ void reader_thread(
     try {
         auto mapped_file = std::make_shared<MappedFile>();
         if (!mapped_file->open(file_path)) {
+            g_failed_files.fetch_add(1); // KI-12: ошибка должна попасть в счётчик и exit-код
             std::lock_guard<std::mutex> lock(g_cout_mutex);
             std::cerr << "[Reader] Ошибка открытия файла (mmap): " << file_path << std::endl;
             return;
@@ -819,13 +875,23 @@ void reader_thread(
         
         const char* data_start = mapped_file->data();
         if (data_start == nullptr) return;
-        
+
         const char* data_end = data_start + mapped_file->size();
+
+        // KI-6: пропускаем UTF-8 BOM, иначе первая строка не совпадает с маской
+        // и первое событие файла молча теряется (все файлы ТЖ 1С начинаются с BOM)
+        if (data_end - data_start >= 3 &&
+            static_cast<unsigned char>(data_start[0]) == 0xEF &&
+            static_cast<unsigned char>(data_start[1]) == 0xBB &&
+            static_cast<unsigned char>(data_start[2]) == 0xBF) {
+            data_start += 3;
+        }
+
         const char* ptr = data_start;
         const char* event_start = data_start;
-        
+
         bool in_event = false;
-        if (mapped_file->size() >= 13 && is_event_start(ptr, mapped_file->size())) {
+        if (data_end - data_start >= 15 && is_event_start(ptr, data_end - data_start)) {
             in_event = true;
         }
         
@@ -945,6 +1011,11 @@ void parser_thread(
                     
                     std::string_view time_part(ptr, dash_pos - ptr);
                     std::string_view duration_part(dash_pos + 1, comma_pos - (dash_pos + 1));
+
+                    // KI-2: канонизация длительности — ведущие нули ("007") дают невалидный JSON
+                    while (duration_part.size() > 1 && duration_part.front() == '0') {
+                        duration_part.remove_prefix(1);
+                    }
                     
                     // 2. Парсим имя события и уровень
                     // Формат: ,Event,Level,
@@ -1246,7 +1317,17 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         
-        size_t num_workers = (argc >= 3) ? std::atoi(argv[2]) : std::thread::hardware_concurrency();
+        // KI-8: atoi + size_t превращали "-2" в ~1.8e19 потоков; валидируем явно
+        size_t num_workers = std::thread::hardware_concurrency();
+        if (argc >= 3) {
+            char* end_ptr = nullptr;
+            long w = std::strtol(argv[2], &end_ptr, 10);
+            if (end_ptr == argv[2] || *end_ptr != '\0' || w < 1 || w > 1024) {
+                CERR_UTF8("Ошибка: workers должен быть целым числом от 1 до 1024\n");
+                return 1;
+            }
+            num_workers = static_cast<size_t>(w);
+        }
         if (num_workers == 0) {
             num_workers = 1;
         }
@@ -1446,7 +1527,11 @@ int main(int argc, char* argv[]) {
     COUT_UTF8("Всего обработано событий: ");
     std::cout << events_processed << std::endl;
     COUT_UTF8("Обработано файлов: ");
-    std::cout << files.size() << std::endl;
+    std::cout << (files.size() - g_failed_files.load()) << "/" << files.size() << std::endl;
+    if (g_failed_files.load() > 0) {
+        COUT_UTF8("Ошибок открытия файлов: ");
+        std::cout << g_failed_files.load() << std::endl;
+    }
     COUT_UTF8("Время обработки: ");
     std::cout << (duration.count() / 1000.0) << " секунд" << std::endl;
     COUT_UTF8("Общий размер файлов: ");
@@ -1455,14 +1540,26 @@ int main(int argc, char* argv[]) {
     std::cout << (total_size / (1024.0 * 1024.0)) / (duration.count() / 1000.0) << " МБ/сек" << std::endl;
     std::cout << std::string(80, '=') << std::endl;
     
-    COUT_UTF8("Результаты сохранены в ");
+    if (!no_output && !g_writer_failed) {
+        COUT_UTF8("Результаты сохранены в ");
 #ifdef _WIN32
-    COUT_UTF8(output_file.u8string());
+        COUT_UTF8(output_file.u8string());
 #else
-    std::cout << output_file;
+        std::cout << output_file;
 #endif
-    std::cout << std::endl;
-    
+        std::cout << std::endl;
+    }
+
+    // KI-5/KI-12: фатальные ошибки писателя и файлов -> ненулевой exit-код
+    if (g_writer_failed) {
+        CERR_UTF8("ОШИБКА: запись результатов не удалась, вывод неполный\n");
+        return 1;
+    }
+    if (g_failed_files.load() > 0) {
+        CERR_UTF8("ВНИМАНИЕ: часть файлов не обработана (см. счётчик ошибок)\n");
+        return 2;
+    }
+
     } catch (const std::exception& e) {
         std::cerr << "Критическая ошибка: " << e.what() << std::endl;
         return 1;
@@ -1470,7 +1567,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Неизвестная критическая ошибка!" << std::endl;
         return 1;
     }
-    
+
     return 0;
 }
 

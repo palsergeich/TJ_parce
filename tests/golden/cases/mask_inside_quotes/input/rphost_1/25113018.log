@@ -1,0 +1,3 @@
+00:17.000017-90,QERR,0,Descr='line one
+10:00.000000-5,fake inside quotes
+line three',After=1,Pad=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

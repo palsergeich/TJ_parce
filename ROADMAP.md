@@ -19,17 +19,17 @@
 - [x] Проект слоя хранения → [docs/storage-design.md](docs/storage-design.md)
 - [x] Протокол bake-off и тест-стратегия → [docs/bakeoff-protocol.md](docs/bakeoff-protocol.md)
 - [x] Спецификация формата v1.0 (draft) → [docs/format-spec.md](docs/format-spec.md)
-- [ ] `git init` + первый коммит
-- [ ] Установить тулчейны: VS Build Tools (MSVC) или MinGW-w64, CMake, rustup (Go 1.26 и Docker уже есть)
-- [ ] **Починить критичные баги ядра** (реестр KI в format-spec.md): KI-2 (невалидный JSON у версий вида `8.3.22.1704`), KI-5 (дедлок writer), KI-6/KI-7 (BOM вход/выход), KI-8 (argv)
-- [ ] Golden-тесты: сиды уже в `tests/golden/seed/` (8 файлов из разных коллекций) → нарезать кейсы, зафиксировать `expected.jsonl` ПОСЛЕ фиксов KI
+- [x] `git init` + первый коммит (`c0c9caa`)
+- [x] VS Build Tools 2022 (MSVC 19.44) установлен; сборка: `cl /O2 /GL /arch:AVX2 /DNOMINMAX` ⏳ CMake/rustup/hyperfine доустанавливаются
+- [x] **Починены критичные баги ядра**: KI-2 (строгая грамматика чисел + канонизация duration), KI-5 (дренаж очереди + exit-код при ошибке writer), KI-6 (пропуск входного BOM — вернул +1 событие на файл: 21307 против 21112 на CallsDiag_86), KI-7 (убран выходной BOM), KI-8 (валидация workers), KI-12 (счётчик ошибок mmap + exit 2)
+- [x] Golden-тесты: 19 кейсов (12 синтетических + 7 реальных), 18 PASS + 1 XFAIL (KI-1), эталоны зафиксированы, все 1501 строка — валидный JSON; раннер `tests/golden/run_golden.ps1`
 
 ## Фаза 1 — быстрая польза: архив → ClickHouse → Grafana
 
-- [ ] `docker compose -f deploy/docker-compose.yml up -d` (схема применяется из `deploy/clickhouse/init/`)
-- [ ] Временный импортёр (Python): NDJSON нормализатора → маппинг полей на колонки `tj.events` (правила в storage-design §1) → вставка батчами
-- [ ] Залить архив E:\TJ_Logs, проверить объёмы/сжатие против оценок (~12–18×)
-- [ ] Datasource ClickHouse в Grafana + первые 3 дашборда: обзор кластера, top Context, долгие DBMSSQL (спеки в storage-design §4)
+- [x] ClickHouse поднят, схема применена и проверена вживую (все 4 MV работают). Native-порт хоста: **9001**
+- [x] Импортёр `deploy/importer/import-jsonl.ps1`: NDJSON → `tj.events` целиком на SQL ClickHouse (JSONAsString + JSONExtract), проверен на сэмпле CallsDiag_86 (21112 строк = 21112 строк в БД, горячие колонки и props корректны). Найдено и починено: `CLICKHOUSE_SKIP_USER_SETUP` (доступ с хоста), TTL по умолчанию 3650 дней (30-дневный молча удалял импортированный архив)
+- [x] Grafana provisioning: datasource ClickHouse + дашборд «Обзор кластера» (6 панелей) — проверить вживую после полной заливки
+- [ ] Залить полный архив E:\TJ_Logs (новым exe), проверить объёмы/сжатие против оценок (~12–18×)
 - [ ] Смоук сравнения периодов на данных 28–30.11.2025
 
 ## Фаза 2 — bake-off агентов (Go / Rust / C++)

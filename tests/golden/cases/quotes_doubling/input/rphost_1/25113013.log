@@ -1,0 +1,4 @@
+00:06.000006-30,SDBL,0,Sql='SELECT ''x'' FROM t',Descr="he said ""hi""",Tail=ok
+00:07.000007-40,EXCP,0,Descr='unterminated value
+second line of the same event
+00:08.000008-50,CALL,1,Usr=next,Pad=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

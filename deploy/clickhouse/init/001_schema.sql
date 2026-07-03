@@ -79,7 +79,13 @@ CREATE TABLE IF NOT EXISTS tj.events
 ENGINE = MergeTree
 PARTITION BY toDate(ts)
 ORDER BY (event, ts, process_name, session_id)
-TTL toDateTime(ts) + INTERVAL 30 DAY DELETE
+-- TTL отсчитывается от времени СОБЫТИЯ, а не от времени вставки. С коротким TTL
+-- импорт исторического архива (сценарий фазы 1) удалялся бы сразу после вставки
+-- (проверено на живой БД: парты 2025-11 дропнулись в ту же секунду, а агрегаты
+-- в MV остались — рассинхрон). Поэтому по умолчанию — «не удалять» (10 лет).
+-- Для онлайн-режима с ретенцией сырья 30 суток (docs/storage-design.md §6):
+--   ALTER TABLE tj.events MODIFY TTL toDateTime(ts) + INTERVAL 30 DAY DELETE
+TTL toDateTime(ts) + INTERVAL 3650 DAY DELETE
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 -- === MV-1: поминутная сводка ===

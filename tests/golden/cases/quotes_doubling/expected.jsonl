@@ -1,0 +1,3 @@
+{"timestamp":"2025-11-30T13:00:06.000006","duration":30,"event":"SDBL","level":0,"filename":"25113013.log","file_path":"input\\rphost_1\\25113013.log","Sql":"SELECT 'x' FROM t","Descr":"he said \"hi\"","Tail":"ok"}
+{"timestamp":"2025-11-30T13:00:07.000007","duration":40,"event":"EXCP","level":0,"filename":"25113013.log","file_path":"input\\rphost_1\\25113013.log","Descr":"unterminated value\nsecond line of the same event"}
+{"timestamp":"2025-11-30T13:00:08.000008","duration":50,"event":"CALL","level":1,"filename":"25113013.log","file_path":"input\\rphost_1\\25113013.log","Usr":"next","Pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}

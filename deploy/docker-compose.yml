@@ -12,6 +12,11 @@ services:
       nofile: 262144
     environment:
       CLICKHOUSE_DB: tj
+      # Без этого entrypoint генерирует users.d/default-user.xml, запирающий
+      # пользователя default на 127.0.0.1 внутри контейнера, — и HTTP-доступ
+      # с хоста (импортёр) и из соседних контейнеров (Grafana) получает
+      # AUTHENTICATION_FAILED.
+      CLICKHOUSE_SKIP_USER_SETUP: 1
     healthcheck:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 5s
@@ -38,6 +43,7 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
     volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards
       - grafana-data:/var/lib/grafana
     depends_on:

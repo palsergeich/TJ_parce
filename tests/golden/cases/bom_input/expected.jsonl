@@ -1,0 +1,2 @@
+{"timestamp":"2025-11-30T12:00:04.000004","duration":10,"event":"CALL","level":1,"filename":"25113012.log","file_path":"input\\rphost_1\\25113012.log","Usr":"test","Pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+{"timestamp":"2025-11-30T12:00:05.000005","duration":20,"event":"CALL","level":2,"filename":"25113012.log","file_path":"input\\rphost_1\\25113012.log","Usr":"test2","Pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
