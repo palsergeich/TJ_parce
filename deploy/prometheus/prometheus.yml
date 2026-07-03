@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Агенты-сборщики ТЖ (endpoint /metrics появится в фазе 3).
+  # Пока агентов нет — job пустой, Prometheus просто поднимается.
+  - job_name: tj-agents
+    static_configs:
+      - targets: []
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

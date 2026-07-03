@@ -1,0 +1,173 @@
+﻿00:02.029000-0,ATTN,0,process=ragent,OSThread=15776,Descr=Server online,AgentUrl=
+00:02.029007-0,ATTN,0,process=ragent,OSThread=21724,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:02.029010-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:02.029011-0,ATTN,0,process=ragent,OSThread=11360,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:02.029013-0,ATTN,0,process=ragent,OSThread=32992,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:02.029015-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:02.794000-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4540,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:02.794001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:02.794002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3564,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=0,packetsLostAndFound=0'
+00:07.029002-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:07.029007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:07.029009-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:07.029011-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:07.029014-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:07.029015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:07.873000-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4569,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:07.873001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4571,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:12.029001-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:12.029007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:12.029009-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:12.029011-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:12.029013-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:12.029015-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:12.951000-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4540,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:12.951001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:12.951002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3564,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=0,packetsLostAndFound=0'
+00:17.044003-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:17.044008-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:17.044009-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:17.044011-0,ATTN,0,process=ragent,OSThread=11360,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:17.044013-0,ATTN,0,process=ragent,OSThread=34284,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:17.044015-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:18.029000-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4569,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:18.029001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4571,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:19.091008-0,CONN,0,process=ragent,OSThread=41968,Txt='Connection removed from ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901153439,lastReceivedTs=3901153439,lastReceivedTestTs=(3901152424,3901152564,3901152564,3901153439,3901153439,3901153439,3901153439,3901153439),clientID=17472'
+00:19.091009-164547001,CONN,0,process=ragent,OSThread=41860,ClientID=17472,Txt=Outgoing connection closed
+00:19.091012-0,CONN,0,process=ragent,OSThread=41968,Txt='Connection removed from ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901153439,lastReceivedTs=3901153439,lastReceivedTestTs=(3901152424,3901152564,3901152564,3901153439,3901153439,3901153439,3901153439,3901153439),clientID=17480'
+00:19.091013-121514007,CONN,0,process=ragent,OSThread=3948,ClientID=17480,Txt=Outgoing connection closed
+00:19.123015-0,CONN,1,process=ragent,OSThread=28952,ClientID=17493,Protected=0,Txt='Connected, client=(2)10.3.0.184:45805, server=(2)10.3.0.184:3541, marker=1'
+00:19.123016-0,CONN,1,process=ragent,OSThread=27880,ClientID=17494,Protected=0,Txt='Connected, client=(2)10.3.0.184:45806, server=(2)10.3.0.184:3541, marker=1'
+00:19.123017-0,CONN,1,process=ragent,OSThread=28952,Txt='Connection added to ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901153439,lastReceivedTs=3901153439,lastReceivedTestTs=(3901152424,3901152564,3901152564,3901153439,3901153439,3901153439,3901153439,3901153439),clientID=17493'
+00:19.123018-0,CONN,1,process=ragent,OSThread=27880,Txt='Connection added to ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901153439,lastReceivedTs=3901153439,lastReceivedTestTs=(3901152424,3901152564,3901152564,3901153439,3901153439,3901153439,3901153439,3901153439),clientID=17494'
+00:19.123021-0,CONN,1,process=ragent,OSThread=28952,Txt=Clnt: MyUserName1: USR1CV82@RENDEZ-VOUS.RU
+00:19.123022-0,CONN,1,process=ragent,OSThread=27880,Txt=Clnt: MyUserName1: USR1CV82@RENDEZ-VOUS.RU
+00:19.123032-0,CONN,1,process=ragent,OSThread=28952,Txt=Clnt: DstUserName1: USR1CV82@RENDEZ-VOUS.RU StartProtocol: 0 Success
+00:19.123034-0,CONN,1,process=ragent,OSThread=27880,Txt=Clnt: DstUserName1: USR1CV82@RENDEZ-VOUS.RU StartProtocol: 0 Success
+00:19.123046-0,CONN,1,process=ragent,OSThread=27880,Txt=Clnt: MyUserName2: 
+00:19.123048-0,CONN,1,process=ragent,OSThread=28952,Txt=Clnt: MyUserName2: 
+00:22.044002-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:22.044007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:22.044009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:22.044011-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:22.044013-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:22.044015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:22.091008-0,CONN,0,process=ragent,OSThread=41968,Txt='Connection removed from ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901156486,lastReceivedTs=3901156486,lastReceivedTestTs=(3901155471,3901155611,3901155611,3901156486,3901156486,3901156486,3901156486,3901156486),clientID=17478'
+00:22.091009-145075991,CONN,0,process=ragent,OSThread=49496,ClientID=17478,Txt=Outgoing connection closed
+00:22.123006-0,CONN,1,process=ragent,OSThread=27880,ClientID=17495,Protected=0,Txt='Connected, client=(2)10.3.0.184:45924, server=(2)10.3.0.184:3541, marker=1'
+00:22.123007-0,CONN,1,process=ragent,OSThread=27880,Txt='Connection added to ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901156486,lastReceivedTs=3901156486,lastReceivedTestTs=(3901155471,3901155611,3901155611,3901156486,3901156486,3901156486,3901156486,3901156486),clientID=17495'
+00:22.123012-0,CONN,1,process=ragent,OSThread=27880,Txt=Clnt: MyUserName1: USR1CV82@RENDEZ-VOUS.RU
+00:22.138005-0,CONN,1,process=ragent,OSThread=27880,Txt=Clnt: DstUserName1: USR1CV82@RENDEZ-VOUS.RU StartProtocol: 0 Success
+00:22.138019-0,CONN,1,process=ragent,OSThread=27880,Txt=Clnt: MyUserName2: 
+00:23.107000-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4540,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:23.107001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:23.107002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3564,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=0,packetsLostAndFound=0'
+00:27.044002-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:27.044007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:27.044009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:27.044011-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:27.044013-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:27.044015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:28.185000-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4569,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:28.185001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4571,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:32.044002-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:32.044007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:32.044009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:32.044012-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:32.044014-0,ATTN,0,process=ragent,OSThread=11360,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:32.044015-0,ATTN,0,process=ragent,OSThread=34284,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:33.263001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4540,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:33.263002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:33.263003-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3564,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=0,packetsLostAndFound=0'
+00:37.044004-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:37.044007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:37.044009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:37.044012-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:37.044013-0,ATTN,0,process=ragent,OSThread=34284,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:37.044016-0,ATTN,0,process=ragent,OSThread=11360,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:38.341001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4569,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:38.341002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4571,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:42.037004-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:42.037007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:42.037009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:42.037011-0,ATTN,0,process=ragent,OSThread=11360,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:42.037013-0,ATTN,0,process=ragent,OSThread=34284,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:42.037015-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:43.412001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4540,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:43.412002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:43.412003-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3564,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=0,packetsLostAndFound=0'
+00:47.037004-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:47.037008-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:47.037009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:47.037011-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:47.037013-0,ATTN,0,process=ragent,OSThread=34284,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:47.037015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:48.491001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4569,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:48.491002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4571,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:52.037003-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:52.037009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:52.037010-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:52.037011-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:52.037013-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:52.037015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:53.569001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4540,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:53.569002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:53.569003-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3564,pingTimeout=5000,pingPeriod=1000,period=10157,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=0,packetsLostAndFound=0'
+00:54.303000-0,CONN,0,process=ragent,OSThread=50760,ClientID=17496,Protected=0,Txt='Accepted, client=(2)127.0.0.1:49581, server=(2)127.0.0.1:3540, marker=1'
+00:54.303003-0,CONN,2,process=ragent,OSThread=47276,t:clientID=17496,Txt=Srvr: SrcUserName1: USR1CV82@RENDEZ-VOUS.RU
+00:54.303004-0,CONN,2,process=ragent,OSThread=47276,t:clientID=17496,Txt=Srvr: DstUserName1: 1Cv8RAS@RV-RETAIL-1C01(RV-RETAIL-1C01\1Cv8RAS)
+00:54.319004-0,CONN,2,process=ragent,OSThread=39860,t:clientID=17496,t:applicationName=RAS,Txt=Srvr: DstUserName2: RV-RETAIL-1C01\1Cv8RAS(RV-RETAIL-1C01\1Cv8RAS)
+00:54.319005-0,SCOM,2,process=ragent,OSThread=39860,t:clientID=17496,t:applicationName=RAS,Func='new ServerProcessData(5a8a3f0,,)'
+00:54.319007-0,SCOM,3,process=ragent,OSThread=39860,t:clientID=17496,t:applicationName=RAS,Func='setSrcProcessName(5a8a3f0,##AdminProcess##,##AdminProcess##)'
+00:54.319017-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=17496,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+00:54.319014-0,ADMIN,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=17496,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Func=regAuthenticate,ClusterID=53b8ab4b-6729-4932-ad57-f1b519007d9b,Administrator=,Result=Fail
+00:54.319023-0,CONN,0,process=ragent,OSThread=39860,ClientID=17496,Descr='server_addr=(2)127.0.0.1:49581 descr=recv returns zero, disconnected line=2278 file=src\rtrsrvc\src\DataExchangeServerImpl.cpp'
+00:54.319024-0,CONN,0,process=ragent,OSThread=39860,ClientID=17496,Txt=Incomming connection closed: client disconnected
+00:54.319025-16024,CONN,0,process=ragent,OSThread=47276,t:clientID=17496,t:clientID=17496,t:computerName=RV-RETAIL-1C01,t:applicationName=RAS,t:connectID=0,Calls=6
+00:54.319026-20,SCOM,2,process=ragent,OSThread=39860,t:clientID=17496,t:applicationName=RAS,ProcessName=##AdminProcess##,SrcProcessName=##AdminProcess##,Func='delete ServerProcessData(5a8a3f0,##AdminProcess##,##AdminProcess##)'
+00:57.037002-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+00:57.037007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+00:57.037009-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+00:57.037013-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+00:57.037015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+00:57.037014-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+00:58.647001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4569,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+00:58.647002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4571,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+01:02.037003-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+01:02.037007-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+01:02.037009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+01:02.037011-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+01:02.037013-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+01:02.037015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+01:03.725001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4540,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=2,maxResponseTime=16,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+01:03.725002-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+01:03.725003-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.184:3564,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=0,packetsLostAndFound=0'
+01:07.037003-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+01:07.037008-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+01:07.037009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+01:07.037011-0,ATTN,0,process=ragent,OSThread=34284,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540
+01:07.037013-0,ATTN,0,process=ragent,OSThread=11360,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+01:07.037016-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+01:07.100006-0,CONN,0,process=ragent,OSThread=41968,Txt='Connection removed from ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901201174,lastReceivedTs=3901201174,lastReceivedTestTs=(3901200299,3901201174,3901201174,3901201174,3901201174,3901201174,3901201314,3901201314),clientID=17481'
+01:07.100007-166523006,CONN,0,process=ragent,OSThread=49496,ClientID=17481,Txt=Outgoing connection closed
+01:07.100014-0,CONN,0,process=ragent,OSThread=41968,Txt='Connection removed from ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901201174,lastReceivedTs=3901201174,lastReceivedTestTs=(3901200299,3901201174,3901201174,3901201174,3901201174,3901201174,3901201314,3901201314),clientID=17479'
+01:07.100015-169523011,CONN,0,process=ragent,OSThread=49496,ClientID=17479,Txt=Outgoing connection closed
+01:07.116003-0,CONN,1,process=ragent,OSThread=50480,ClientID=17497,Protected=0,Txt='Connected, client=(2)10.3.0.184:52646, server=(2)10.3.0.184:3541, marker=1'
+01:07.116004-0,CONN,1,process=ragent,OSThread=50480,Txt='Connection added to ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901201174,lastReceivedTs=3901201174,lastReceivedTestTs=(3901200299,3901201174,3901201174,3901201174,3901201174,3901201174,3901201314,3901201314),clientID=17497'
+01:07.116005-0,CONN,1,process=ragent,OSThread=50480,Txt=Clnt: MyUserName1: USR1CV82@RENDEZ-VOUS.RU
+01:07.116008-0,CONN,1,process=ragent,OSThread=50480,Txt=Clnt: DstUserName1: USR1CV82@RENDEZ-VOUS.RU StartProtocol: 0 Success
+01:07.116013-0,CONN,1,process=ragent,OSThread=50480,Txt=Clnt: MyUserName2: 
+01:07.241016-0,CONN,1,process=ragent,OSThread=50480,ClientID=17498,Protected=0,Txt='Connected, client=(2)10.3.0.184:52689, server=(2)10.3.0.184:3541, marker=1'
+01:07.241017-0,CONN,1,process=ragent,OSThread=50480,Txt='Connection added to ping direction: address=10.3.0.184:3541,pingTimeout=5000,pingPeriod=1000,lastSentTs=3901201174,lastReceivedTs=3901201174,lastReceivedTestTs=(3901200299,3901201174,3901201174,3901201174,3901201174,3901201174,3901201314,3901201314),clientID=17498'
+01:07.241020-0,CONN,1,process=ragent,OSThread=50480,Txt=Clnt: MyUserName1: USR1CV82@RENDEZ-VOUS.RU
+01:07.241029-0,CONN,1,process=ragent,OSThread=50480,Txt=Clnt: DstUserName1: USR1CV82@RENDEZ-VOUS.RU StartProtocol: 0 Success
+01:07.241039-0,CONN,1,process=ragent,OSThread=50480,Txt=Clnt: MyUserName2: 
+01:08.803000-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4569,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+01:08.803001-0,CONN,0,process=ragent,OSThread=35068,Txt='Ping direction statistics: address=10.3.0.130:4571,pingTimeout=5000,pingPeriod=1000,period=10156,packetsSent=10,avgResponseTime=0,maxResponseTime=0,packetsTimedOut=0,packetsLost=1,packetsLostAndFound=1'
+01:12.037002-0,ATTN,0,process=ragent,OSThread=21724,Descr=Server online,AgentUrl=
+01:12.037008-0,ATTN,0,process=ragent,OSThread=15776,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3541,AgentUrl=,ProcessId=b1c09d44-bcbe-4ca1-9fde-49c3d86dc43d,Pid=38552
+01:12.037009-0,ATTN,0,process=ragent,OSThread=48516,Descr=Process online,Url=tcp://RV-RETAIL-1C01:3564,AgentUrl=,ProcessId=6daa05f0-2a70-4724-8218-b55ca63e8c4e,Pid=14600
+01:12.037011-0,ATTN,0,process=ragent,OSThread=32992,Descr=Process online,Url=tcp://RV-LIC-1C01:4571,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=a4717f25-ded3-4e74-ac88-36c48d72f88f,Pid=3612
+01:12.037013-0,ATTN,0,process=ragent,OSThread=34284,Descr=Process online,Url=tcp://RV-LIC-1C01:4569,AgentUrl=tcp://RV-LIC-1C01:4540,ProcessId=13fa77a3-e12a-401d-98dd-982b213df2da,Pid=7604
+01:12.037015-0,ATTN,0,process=ragent,OSThread=11360,Descr=Server online,AgentUrl=tcp://RV-LIC-1C01:4540

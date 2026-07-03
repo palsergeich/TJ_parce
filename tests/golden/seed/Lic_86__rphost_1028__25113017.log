@@ -1,0 +1,247 @@
+﻿07:02.575014-1,LIC,3,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=27,t:applicationName=SystemBackgroundJob,t:computerName=RV-RETAIL-1C01,Func=initialize,txt='local Server32, hasp HL soft local, EN8SA local, ENSR8 local, Base local'
+07:02.590000-14985,LIC,3,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=27,t:applicationName=SystemBackgroundJob,t:computerName=RV-RETAIL-1C01,Func=getLicense,res=seize,txt='0, client, seize, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, long, 8100841688G0, 012552026850273, server 64, full functionality, many users, large server resources, 1, 0, 0, 17, 0, 0, (2492), 1131077, 1770029
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, server 64, full functionality, many users, large server resources, 0, 0, 17, 0, 0, (2492), 1131077, 1770029'
+08:38.911018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=47812,t:clientID=30,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+09:13.599018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=55,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+10:09.461024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=55,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,t:connectID=11124,SessionID=1925,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+10:46.399012-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=47812,t:clientID=55,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,t:connectID=11124,SessionID=1926,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+11:15.341042-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=70,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+12:03.185026-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=41292,t:clientID=70,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,t:connectID=11136,SessionID=1932,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+12:36.826020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=90,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+13:17.427005-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=105,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+13:41.973017-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=118,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+14:08.963020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=125,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+14:31.229023-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=128,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+15:19.381044-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=144,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+15:51.178020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=152,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+16:44.495027-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=129,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,t:connectID=11171,SessionID=1952,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+17:08.851060-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=135,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11175,SessionID=1957,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+17:51.289012-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=174,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11191,SessionID=1959,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+18:17.044024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=186,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+18:45.809039-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=186,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,t:connectID=11203,SessionID=1965,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+19:40.443058-2,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=180,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,t:connectID=11198,SessionID=1967,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+20:34.240024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=220,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+21:09.322036-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=209,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11213,SessionID=1970,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+21:45.775020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=235,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+22:14.260017-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=226,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,t:connectID=11222,SessionID=1974,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+22:34.963024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=244,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,t:connectID=11230,SessionID=1976,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+23:45.569018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=271,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+24:06.191018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=276,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+24:47.144019-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=274,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11248,SessionID=1983,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+25:22.336064-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=301,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+26:48.054044-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=278,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,t:connectID=11250,SessionID=1987,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+27:28.429024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=320,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+28:24.767042-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=322,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11274,SessionID=1991,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+28:45.517005-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=340,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+29:15.157024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=340,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,t:connectID=11282,SessionID=1994,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+29:37.985005-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=357,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+30:22.441032-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=321,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11273,SessionID=1998,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+30:54.082040-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=356,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11290,SessionID=2002,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+31:35.019011-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=384,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+31:55.082021-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=11104,t:clientID=396,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+32:16.702007-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=387,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,t:connectID=11306,SessionID=2007,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+33:02.365015-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=407,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+33:35.662020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=11104,t:clientID=416,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+34:22.802032-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=428,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+34:49.458058-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=11104,t:clientID=443,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+35:33.760023-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=455,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+36:10.048024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=11104,t:clientID=468,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+36:43.189018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=473,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+37:10.998018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=482,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+37:31.998022-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=489,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+37:52.123007-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=499,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+38:37.377020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=511,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+39:34.430032-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=512,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,t:connectID=11361,SessionID=2037,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+39:58.227047-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=532,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+40:30.012023-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=539,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+41:09.620020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=546,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+41:54.949024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=560,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+43:04.031017-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=572,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+43:38.297023-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=583,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+44:11.339018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=599,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+45:04.191009-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=611,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+45:57.269018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=624,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+46:54.269030-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=612,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,t:connectID=11409,SessionID=2061,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+48:19.257007-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=6452,t:clientID=634,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,t:connectID=11421,SessionID=2063,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+48:40.866020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=659,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+49:03.119021-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=663,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,t:connectID=11439,SessionID=2072,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+50:07.625004-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=691,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+50:31.907017-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=699,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+51:36.369030-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=699,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,t:connectID=11451,SessionID=2074,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+52:32.224024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=716,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,t:connectID=11454,SessionID=2079,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+52:53.708024-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=716,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,t:connectID=11454,SessionID=2081,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+53:25.382020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=738,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+54:11.696025-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=756,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+54:40.571027-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=761,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+55:51.131021-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=756,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,t:connectID=11476,SessionID=2091,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+56:13.663020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=788,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+56:59.553020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=39152,t:clientID=805,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-6lf66,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+57:22.585018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=813,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+57:43.131018-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=24628,t:clientID=819,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-v6qpv,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+58:04.416016-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=826,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+58:35.291038-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=22460,t:clientID=788,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-ngc9p,t:connectID=11493,SessionID=2101,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+59:10.515020-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=42812,t:clientID=838,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-nnhbc,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'
+59:53.937023-1,LIC,2,process=rphost,p:processName=KKM_Service,OSThread=2840,t:clientID=855,t:applicationName=WebServerExtension,t:computerName=soap-internal-5dfb64f4bf-7qms2,Func=getLicense,res=seize,txt='0, client, reuse, 281347328, local Server32; 
+  soft, file://C:/ProgramData/1C/licenses/20200202064101.lic, unlim
+soft, file://C:/ProgramData/1C/licenses/20200202064101.lic'

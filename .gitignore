@@ -1,0 +1,27 @@
+# Архив старых экспериментов (не версионируется)
+_Архив/
+
+# Артефакты сборки
+build/
+target/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.o
+
+# Выходные данные нормализатора и замеров
+*.jsonl
+result*.txt
+bench/corpus/
+
+# Golden-эталоны и тестовые данные — версионируются (исключение из *.jsonl)
+!tests/golden/**/*.jsonl
+!tests/integration/**/*.jsonl
+
+# Python
+__pycache__/
+*.pyc
+
+# Локальное окружение
+.env

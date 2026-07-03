@@ -1,0 +1,192 @@
+﻿00:45.345007-0,EXCP,1,process=ragent,OSThread=47604,ClientID=6962,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+00:45.345008-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+00:45.345009-3,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=47604,ClientID=6962,CallID=1174880,MName=Release
+00:45.345011-0,EXCP,0,process=ragent,OSThread=47604,ClientID=6962,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+00:45.345012-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+00:45.345013-0,EXCP,0,process=ragent,OSThread=47604,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+00:54.142026-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=6976,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+01:54.096024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=6983,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+02:54.129024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=6990,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+03:54.269012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=6998,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+04:54.176024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7007,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+05:54.332012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7014,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+06:54.754013-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7021,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+07:54.105012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7028,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+08:54.190024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7036,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+09:54.550001-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7043,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+10:54.008012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7050,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+10:55.421008-0,EXCP,1,process=ragent,OSThread=46036,ClientID=7033,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3564 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3564 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+10:55.421009-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+10:55.421010-3,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=46036,ClientID=7033,CallID=1186863,MName=Release
+10:55.421012-0,EXCP,0,process=ragent,OSThread=46036,ClientID=7033,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3564 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+10:55.421013-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+10:55.421018-0,EXCP,0,process=ragent,OSThread=46036,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3564 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3564 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+11:54.030025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7057,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+12:54.239024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7064,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+13:54.152055-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7070,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+13:55.440008-0,EXCP,1,process=ragent,OSThread=46036,ClientID=6576,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3565 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3565 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+13:55.440009-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+13:55.440010-3,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=46036,ClientID=6576,CallID=1190391,MName=Release
+13:55.440012-0,EXCP,0,process=ragent,OSThread=46036,ClientID=6576,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3565 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+13:55.440013-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+13:55.440014-0,EXCP,0,process=ragent,OSThread=46036,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3565 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3565 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+14:54.190012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7078,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+15:54.602024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7084,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+16:54.186016-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7092,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+17:54.069025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7098,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+18:54.277015-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7105,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+19:54.003024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7112,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+20:54.114025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7119,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+21:54.097025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7127,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+22:54.241012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7134,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+23:54.337025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7141,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+24:54.190002-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7148,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+25:54.588018-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7155,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+26:54.117012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7162,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+27:54.115024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7169,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+28:54.102025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7176,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+29:54.162024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7181,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+30:54.163012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7190,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+31:54.085024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7196,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+32:54.242012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7203,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+33:54.236023-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7210,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+34:54.051024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7216,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+35:54.418012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7224,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+36:54.175024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7230,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+37:54.078017-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7238,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+38:35.619008-0,EXCP,1,process=ragent,OSThread=47604,ClientID=6999,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+38:35.619009-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+38:35.619010-4,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=47604,ClientID=6999,CallID=1219296,MName=Release
+38:35.619012-0,EXCP,0,process=ragent,OSThread=47604,ClientID=6999,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+38:35.619013-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+38:35.619014-0,EXCP,0,process=ragent,OSThread=47604,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+38:54.182013-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7243,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+39:54.016012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7253,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+40:54.065012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7259,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+41:35.650007-0,EXCP,1,process=ragent,OSThread=47604,ClientID=7246,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+41:35.650008-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+41:35.650009-3,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=47604,ClientID=7246,CallID=1222816,MName=Release
+41:35.650011-0,EXCP,0,process=ragent,OSThread=47604,ClientID=7246,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+41:35.650012-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+41:35.650013-0,EXCP,0,process=ragent,OSThread=47604,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+41:54.009025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7266,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+42:54.461026-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7273,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+43:54.212024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7280,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+44:54.064026-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7288,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+45:54.126039-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7295,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+46:54.287024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7302,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+47:54.132024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7309,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+48:45.708007-0,EXCP,1,process=ragent,OSThread=47604,ClientID=7281,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+48:45.708008-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+48:45.708009-3,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=47604,ClientID=7281,CallID=1231249,MName=Release
+48:45.708011-0,EXCP,0,process=ragent,OSThread=47604,ClientID=7281,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+48:45.708012-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+48:45.708017-0,EXCP,0,process=ragent,OSThread=47604,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+48:54.098025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7317,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+49:54.283025-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7324,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+50:54.365012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7331,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+51:54.198012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7335,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+52:35.722008-0,EXCP,1,process=ragent,OSThread=47604,ClientID=7316,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+52:35.722009-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+52:35.722010-4,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=47604,ClientID=7316,CallID=1235733,MName=Release
+52:35.722012-0,EXCP,0,process=ragent,OSThread=47604,ClientID=7316,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+52:35.722013-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+52:35.722014-0,EXCP,0,process=ragent,OSThread=47604,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+52:54.222024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7345,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+53:54.284012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7349,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+54:54.608012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7360,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+55:54.434014-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7364,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+56:54.323023-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7375,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+57:54.404024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7378,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+57:55.768008-0,EXCP,1,process=ragent,OSThread=47604,ClientID=7354,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+57:55.768009-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+57:55.768010-4,EXCPCNTX,0,SrcName=SCALL,process=ragent,OSThread=47604,ClientID=7354,CallID=1241959,MName=Release
+57:55.768012-0,EXCP,0,process=ragent,OSThread=47604,ClientID=7354,Exception=NetDataExchangeException,Descr=' server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+57:55.768013-0,EXCPCNTX,0,ClientComputerName=,ServerComputerName=,UserName=,ConnectString=
+57:55.768014-0,EXCP,0,process=ragent,OSThread=47604,Exception=81029657-3fe6-4cd6-80c0-36de78fe6657,Descr='src\rtrsrvc\src\RemoteInterfaceImpl.cpp(1265):
+81029657-3fe6-4cd6-80c0-36de78fe6657:  server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=1486 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp
+server_addr=tcp://RV-RETAIL-1C01:3560 descr=10054(0x00002746): Удаленный хост принудительно разорвал существующее подключение.  line=2026 file=src\rtrsrvc\src\DataExchangeTcpClientImpl.cpp'
+58:54.831012-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7387,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'
+59:54.183024-0,EXCP,3,process=ragent,p:processName=##AdminProcess##,OSThread=39860,t:clientID=7392,t:applicationName=RAS,t:computerName=RV-RETAIL-1C01,Exception=acea3e6e-3687-4792-8319-09c009274c9a,Descr='src\rserver\src\RMngrCalls.cpp(516):
+acea3e6e-3687-4792-8319-09c009274c9a: Администратор кластера не аутентифицирован'

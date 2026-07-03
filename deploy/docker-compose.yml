@@ -1,0 +1,49 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: tj-clickhouse
+    ports:
+      - "8123:8123"   # HTTP (Grafana, импорт)
+      - "9001:9000"   # Native TCP (агенты); хост-порт 9001, т.к. 9000 может быть занят
+    volumes:
+      - ./clickhouse/init:/docker-entrypoint-initdb.d
+      - ch-data:/var/lib/clickhouse
+    ulimits:
+      nofile: 262144
+    environment:
+      CLICKHOUSE_DB: tj
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: tj-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus:/etc/prometheus
+    depends_on:
+      - clickhouse
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: tj-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+volumes:
+  ch-data:
+  grafana-data:
