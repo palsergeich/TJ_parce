@@ -1,6 +1,8 @@
-﻿# Обёртка одного замера: wall time, CPU%, Peak RSS (поллинг, т.к. после
-# выхода процесса PeakWorkingSet64 недоступен). Протокол: docs/bakeoff-protocol.md §3.
-#   .\measure.ps1 -Exe agents\go\tj-agent-go.exe -Args '--input','E:\bench\corpus-medium','--threads','16','--sink','null'
+﻿# Обёртка одного замера: wall time, CPU%, Peak RSS. Протокол: docs/bakeoff-protocol.md §3.
+#   .\measure.ps1 -Exe agents\go\tj-agent-go.exe -Arguments '--input','E:\bench\corpus-medium','--threads','8','--sink','null'
+# Особенности (выяснено на суб-секундных прогонах):
+# - StartTime/ExitCode недоступны после выхода процесса без удержания Handle — читаем заранее/держим Handle;
+# - поллинг RSS 10 мс (200 мс пропускал пик коротких прогонов; для <0.2 c это всё равно нижняя оценка).
 
 param(
     [Parameter(Mandatory)] [string]$Exe,
@@ -12,16 +14,21 @@ $ErrorActionPreference = 'Stop'
 $Exe = (Resolve-Path $Exe).Path
 
 $p = Start-Process -FilePath $Exe -ArgumentList $Arguments -PassThru -NoNewWindow
+$null = $p.Handle          # удержание handle: иначе ExitCode/ExitTime/TotalProcessorTime потом не прочитать
+$startTime = $p.StartTime  # читаем, пока процесс жив
+
 $peak = 0
 while (-not $p.HasExited) {
     try {
         $p.Refresh()
         if ($p.PeakWorkingSet64 -gt $peak) { $peak = $p.PeakWorkingSet64 }
     } catch {}
-    Start-Sleep -Milliseconds 200
+    Start-Sleep -Milliseconds 10
 }
+try { $p.Refresh(); if ($p.PeakWorkingSet64 -gt $peak) { $peak = $p.PeakWorkingSet64 } } catch {}
 
-$wall = ($p.ExitTime - $p.StartTime).TotalSeconds
+$wall = ($p.ExitTime - $startTime).TotalSeconds
+if ($wall -le 0) { $wall = 0.001 }  # защита от деления на ноль на вырожденных прогонах
 $cpu  = $p.TotalProcessorTime.TotalSeconds
 
 $result = [PSCustomObject]@{

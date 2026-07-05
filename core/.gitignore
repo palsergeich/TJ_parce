@@ -1,0 +1,9 @@
+# Промежуточные файлы CMake/msbuild не коммитим; финальные артефакты — да
+# (конвенция репозитория: cpp_parse/build/count_contexts.exe и
+#  agents/go/tj-agent-go.exe лежат в git).
+build/*
+!build/Release/
+build/Release/*
+!build/Release/tj-agent-cpp.exe
+!build/Release/tj_core_ffi.dll
+!build/Release/tj_ffi_selftest.exe

@@ -1,0 +1,13 @@
+[package]
+name = "tj-agent-rs"
+version = "0.1.0"
+edition = "2021"
+
+# Только std — по условиям bake-off внешние крейты запрещены (паритет с Go-агентом).
+[dependencies]
+
+# Релизный профиль по docs/bakeoff-protocol.md §2.1
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
