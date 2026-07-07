@@ -196,19 +196,38 @@ pub fn split_events(mut data: &[u8], mut emit: impl FnMut(&[u8])) {
     }
 }
 
-/// Разбирает одно событие и дописывает в `dst` готовую JSON-строку
-/// с завершающим `\n`. Возвращает `false`, если событие отбрасывается
-/// (нет второй запятой в заголовке и т.п. — parse_skip, format-spec §6).
-///
-/// `date_prefix` — `20YY-MM-DDTHH:` или пустая строка; `filename_esc` /
-/// `file_path_esc` — уже JSON-экранированные значения (общие на файл).
-pub fn append_event(
-    dst: &mut Vec<u8>,
-    ev: &[u8],
-    date_prefix: &str,
-    filename_esc: &[u8],
-    file_path_esc: &[u8],
-) -> bool {
+/// Потребитель разобранного события. Автомат разбора один (`parse_event`),
+/// эмиттеров два: [`JsonEmitter`] собирает NDJSON-строку (format-spec §3–4),
+/// `chsink::RowEmitter` — RowBinary-строку для ClickHouse. Все данные приходят
+/// СЫРЫМИ байтами источника: экранирование/типизация — забота эмиттера.
+pub trait EventEmitter {
+    /// Заголовок события: `time_part` — `ММ:СС.мммммм` (12 байт по маске §2.1),
+    /// `duration` — цифры без ведущих нулей (KI-2), `level` — сырой токен.
+    fn header(&mut self, time_part: &[u8], duration: &[u8], event: &[u8], level: &[u8]);
+    /// Имя очередного свойства (всё до `=`).
+    fn prop_name(&mut self, name: &[u8]);
+    /// Открытие значения в кавычках (§4.1); пустое значение `Имя=` в конце
+    /// события приходит как `quoted_begin` + `quoted_end`.
+    fn quoted_begin(&mut self);
+    /// Фрагмент значения в кавычках — сырые байты (включая внутренние \r\n).
+    fn quoted_frag(&mut self, frag: &[u8]);
+    /// Кавычка-данные внутри значения: `''` → `'`, `""` → `"`,
+    /// а также KI-10-одиночная `'`, посчитанная данными.
+    fn quoted_quote(&mut self, quote: u8);
+    /// Закрытие значения в кавычках (в т.ч. незакрытого — по концу события).
+    fn quoted_end(&mut self);
+    /// Значение без кавычек — сырой токен до `,`/конца события (типизация §4.2
+    /// — забота эмиттера, поэтому передаётся и имя).
+    fn unquoted(&mut self, name: &[u8], val: &[u8]);
+    /// Конец события (заголовок и все свойства выданы).
+    fn finish(&mut self);
+}
+
+/// Разбирает одно событие и скармливает его частями эмиттеру `em`.
+/// Возвращает `false`, если событие отбрасывается (нет второй запятой
+/// в заголовке и т.п. — parse_skip, format-spec §6); эмиттер в этом случае
+/// не вызывается вовсе.
+pub fn parse_event<E: EventEmitter>(ev: &[u8], em: &mut E) -> bool {
     // Хвостовые \r\n события обрезаются (внутренние сохраняются), §2.1
     let mut end = ev.len();
     while end > 0 && (ev[end - 1] == b'\n' || ev[end - 1] == b'\r') {
@@ -256,38 +275,126 @@ pub fn append_event(
         p = ev.len();
     }
 
-    dst.extend_from_slice(b"{\"timestamp\":\"");
-    dst.extend_from_slice(date_prefix.as_bytes());
-    dst.extend_from_slice(time_part); // маска гарантирует только цифры/':'/'.'
-    dst.extend_from_slice(b"\",\"duration\":");
-    dst.extend_from_slice(duration);
-    dst.extend_from_slice(b",\"event\":\"");
-    append_escaped(dst, event_name);
-    dst.extend_from_slice(b"\",\"level\":");
-    if is_number_token(level) {
-        dst.extend_from_slice(level);
-    } else {
-        dst.push(b'"');
-        append_escaped(dst, level);
-        dst.push(b'"');
-    }
-    dst.extend_from_slice(b",\"filename\":\"");
-    dst.extend_from_slice(filename_esc);
-    dst.extend_from_slice(b"\",\"file_path\":\"");
-    dst.extend_from_slice(file_path_esc);
-    dst.push(b'"');
-
-    // Свойства Имя=Значение (§3, §4)
-    append_props(dst, ev, p);
-
-    dst.push(b'}');
-    dst.push(b'\n');
+    em.header(time_part, duration, event_name, level);
+    parse_props(ev, p, em);
+    em.finish();
     true
 }
 
+/// Эмиттер NDJSON-записи по format-spec (байт-в-байт с эталоном — golden-суита
+/// сверяет побайтно; любое отклонение — баг).
+pub struct JsonEmitter<'a> {
+    dst: &'a mut Vec<u8>,
+    date_prefix: &'a str,
+    filename_esc: &'a [u8],
+    file_path_esc: &'a [u8],
+}
+
+impl EventEmitter for JsonEmitter<'_> {
+    #[inline]
+    fn header(&mut self, time_part: &[u8], duration: &[u8], event: &[u8], level: &[u8]) {
+        let dst = &mut *self.dst;
+        dst.extend_from_slice(b"{\"timestamp\":\"");
+        dst.extend_from_slice(self.date_prefix.as_bytes());
+        dst.extend_from_slice(time_part); // маска гарантирует только цифры/':'/'.'
+        dst.extend_from_slice(b"\",\"duration\":");
+        dst.extend_from_slice(duration);
+        dst.extend_from_slice(b",\"event\":\"");
+        append_escaped(dst, event);
+        dst.extend_from_slice(b"\",\"level\":");
+        if is_number_token(level) {
+            dst.extend_from_slice(level);
+        } else {
+            dst.push(b'"');
+            append_escaped(dst, level);
+            dst.push(b'"');
+        }
+        dst.extend_from_slice(b",\"filename\":\"");
+        dst.extend_from_slice(self.filename_esc);
+        dst.extend_from_slice(b"\",\"file_path\":\"");
+        dst.extend_from_slice(self.file_path_esc);
+        dst.push(b'"');
+    }
+
+    #[inline]
+    fn prop_name(&mut self, name: &[u8]) {
+        self.dst.extend_from_slice(b",\"");
+        append_escaped(self.dst, name);
+        self.dst.extend_from_slice(b"\":");
+    }
+
+    #[inline]
+    fn quoted_begin(&mut self) {
+        self.dst.push(b'"');
+    }
+
+    #[inline]
+    fn quoted_frag(&mut self, frag: &[u8]) {
+        append_escaped(self.dst, frag);
+    }
+
+    #[inline]
+    fn quoted_quote(&mut self, quote: u8) {
+        if quote == b'"' {
+            self.dst.extend_from_slice(b"\\\"");
+        } else {
+            self.dst.push(quote);
+        }
+    }
+
+    #[inline]
+    fn quoted_end(&mut self) {
+        self.dst.push(b'"');
+    }
+
+    #[inline]
+    fn unquoted(&mut self, name: &[u8], val: &[u8]) {
+        // Число по строгой грамматике, кроме always-string полей. Числа
+        // эмитятся СЫРЫМИ байтами источника — без round-trip.
+        if !is_always_string_field(name) && is_number_token(val) {
+            self.dst.extend_from_slice(val);
+        } else {
+            self.dst.push(b'"');
+            append_escaped(self.dst, val);
+            self.dst.push(b'"');
+        }
+    }
+
+    #[inline]
+    fn finish(&mut self) {
+        self.dst.push(b'}');
+        self.dst.push(b'\n');
+    }
+}
+
+/// Разбирает одно событие и дописывает в `dst` готовую JSON-строку
+/// с завершающим `\n` (обёртка `parse_event` + [`JsonEmitter`]). Возвращает
+/// `false`, если событие отбрасывается (parse_skip, format-spec §6);
+/// `dst` при этом не меняется.
+///
+/// `date_prefix` — `20YY-MM-DDTHH:` или пустая строка; `filename_esc` /
+/// `file_path_esc` — уже JSON-экранированные значения (общие на файл).
+pub fn append_event(
+    dst: &mut Vec<u8>,
+    ev: &[u8],
+    date_prefix: &str,
+    filename_esc: &[u8],
+    file_path_esc: &[u8],
+) -> bool {
+    let mut em = JsonEmitter {
+        dst,
+        date_prefix,
+        filename_esc,
+        file_path_esc,
+    };
+    parse_event(ev, &mut em)
+}
+
 /// Автомат свойств: имя до `=`, значение по правилам кавычек §4.1 либо без
-/// кавычек до `,` с типизацией §4.2. Хвост без `=` молча отбрасывается.
-fn append_props(dst: &mut Vec<u8>, ev: &[u8], mut p: usize) {
+/// кавычек до `,` (§4.2). Хвост без `=` молча отбрасывается. Единственный
+/// экземпляр логики кавычек на оба синка (NDJSON и ClickHouse) — семантика
+/// KI-10 и несимметричного закрытия живёт только здесь.
+fn parse_props<E: EventEmitter>(ev: &[u8], mut p: usize, em: &mut E) {
     let end = ev.len();
     while p < end {
         let eq_pos = match find(&ev[p..end], b'=') {
@@ -295,14 +402,13 @@ fn append_props(dst: &mut Vec<u8>, ev: &[u8], mut p: usize) {
             None => break,
         };
         let name = &ev[p..eq_pos];
-
-        dst.extend_from_slice(b",\"");
-        append_escaped(dst, name);
-        dst.extend_from_slice(b"\":");
+        em.prop_name(name);
 
         p = eq_pos + 1;
         if p >= end {
-            dst.extend_from_slice(b"\"\"");
+            // `Имя=` последним байтом события → пустая строка
+            em.quoted_begin();
+            em.quoted_end();
             break;
         }
 
@@ -310,15 +416,15 @@ fn append_props(dst: &mut Vec<u8>, ev: &[u8], mut p: usize) {
             b'\'' => {
                 // Одинарные кавычки: '' — экранирование; одиночная ' закрывает
                 // значение только перед ',' или концом события (KI-10)
-                dst.push(b'"');
+                em.quoted_begin();
                 p += 1;
                 let mut val_start = p;
                 let mut closed = false;
                 while p < end {
                     match find(&ev[p..end], b'\'') {
                         None => {
-                            append_escaped(dst, &ev[val_start..end]);
-                            dst.push(b'"');
+                            em.quoted_frag(&ev[val_start..end]);
+                            em.quoted_end();
                             p = end;
                             closed = true;
                             break;
@@ -327,21 +433,21 @@ fn append_props(dst: &mut Vec<u8>, ev: &[u8], mut p: usize) {
                             p += idx;
                             if p + 1 < end && ev[p + 1] == b'\'' {
                                 // Экранирование '' → одна кавычка в данных
-                                append_escaped(dst, &ev[val_start..p]);
-                                dst.push(b'\'');
+                                em.quoted_frag(&ev[val_start..p]);
+                                em.quoted_quote(b'\'');
                                 p += 2;
                                 val_start = p;
                             } else if p + 1 == end || ev[p + 1] == b',' {
                                 // Закрывающая кавычка
-                                append_escaped(dst, &ev[val_start..p]);
-                                dst.push(b'"');
+                                em.quoted_frag(&ev[val_start..p]);
+                                em.quoted_end();
                                 p += 1;
                                 closed = true;
                                 break;
                             } else {
                                 // Битый формат: одиночная ' внутри — считаем данными
-                                append_escaped(dst, &ev[val_start..p]);
-                                dst.push(b'\'');
+                                em.quoted_frag(&ev[val_start..p]);
+                                em.quoted_quote(b'\'');
                                 p += 1;
                                 val_start = p;
                             }
@@ -350,23 +456,23 @@ fn append_props(dst: &mut Vec<u8>, ev: &[u8], mut p: usize) {
                 }
                 if !closed {
                     // Событие оборвалось ровно на экранирующей паре (§4.1):
-                    // накопленное эмитим, JSON-строку закрываем
-                    append_escaped(dst, &ev[val_start..p]);
-                    dst.push(b'"');
+                    // накопленное эмитим, значение закрываем
+                    em.quoted_frag(&ev[val_start..p]);
+                    em.quoted_end();
                 }
             }
             b'"' => {
                 // Двойные кавычки: "" — экранирование; первая одиночная "
                 // закрывает безусловно (§4.1, несимметрично с одинарными!)
-                dst.push(b'"');
+                em.quoted_begin();
                 p += 1;
                 let mut val_start = p;
                 let mut closed = false;
                 while p < end {
                     match find(&ev[p..end], b'"') {
                         None => {
-                            append_escaped(dst, &ev[val_start..end]);
-                            dst.push(b'"');
+                            em.quoted_frag(&ev[val_start..end]);
+                            em.quoted_end();
                             p = end;
                             closed = true;
                             break;
@@ -374,14 +480,14 @@ fn append_props(dst: &mut Vec<u8>, ev: &[u8], mut p: usize) {
                         Some(idx) => {
                             p += idx;
                             if p + 1 < end && ev[p + 1] == b'"' {
-                                append_escaped(dst, &ev[val_start..p]);
-                                dst.extend_from_slice(b"\\\"");
+                                em.quoted_frag(&ev[val_start..p]);
+                                em.quoted_quote(b'"');
                                 p += 2;
                                 val_start = p;
                                 continue;
                             }
-                            append_escaped(dst, &ev[val_start..p]);
-                            dst.push(b'"');
+                            em.quoted_frag(&ev[val_start..p]);
+                            em.quoted_end();
                             p += 1;
                             closed = true;
                             break;
@@ -389,26 +495,17 @@ fn append_props(dst: &mut Vec<u8>, ev: &[u8], mut p: usize) {
                     }
                 }
                 if !closed {
-                    append_escaped(dst, &ev[val_start..p]);
-                    dst.push(b'"');
+                    em.quoted_frag(&ev[val_start..p]);
+                    em.quoted_end();
                 }
             }
             _ => {
-                // Без кавычек: до ',' или конца события; число по строгой
-                // грамматике, кроме always-string полей. Числа эмитятся
-                // СЫРЫМИ байтами источника — без round-trip.
+                // Без кавычек: сырой токен до ',' или конца события
                 let sep_pos = match find(&ev[p..end], b',') {
                     Some(i) => p + i,
                     None => end,
                 };
-                let val = &ev[p..sep_pos];
-                if !is_always_string_field(name) && is_number_token(val) {
-                    dst.extend_from_slice(val);
-                } else {
-                    dst.push(b'"');
-                    append_escaped(dst, val);
-                    dst.push(b'"');
-                }
+                em.unquoted(name, &ev[p..sep_pos]);
                 p = sep_pos;
             }
         }

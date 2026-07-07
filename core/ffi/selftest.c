@@ -21,7 +21,7 @@ int main(void) {
     int rc;
 
     cfg.workers = 1;
-    cfg.admission_window = 0;
+    cfg.admission_budget_mb = 0;
     cfg.chunk_bytes = 0;
     cfg.map_bytes = 0;
 

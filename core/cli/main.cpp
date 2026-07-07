@@ -6,8 +6,16 @@
 //     tj-agent-cpp <input_dir> [workers] [output.jsonl] [--no-output]
 //
 //  2. Контракт bake-off (docs/bakeoff-protocol.md §1.1, batch-режим):
-//     tj-agent-cpp --input <dir> [--threads N] [--sink null|file:<path>]
+//     tj-agent-cpp --input <dir> [--threads N]
+//                  [--sink null|file:<path>|clickhouse[:<url>]]
+//                  [--batch-rows N] [--batch-bytes N] [--flush-ms N]
 //                  [--stats-json <path>]
+//
+// --sink clickhouse: события кодируются ядром в RowBinary (без пересборки
+// JSON) и вставляются по HTTP (INSERT ... FORMAT RowBinary, WinHTTP, без
+// внешних зависимостей). URL: http://host[:port][/<db>.<table>], по умолчанию
+// http://localhost:8123/tj_bench.events. Батч: 50000 строк | 64 МБ | 1000 мс.
+// --stats-json дополняется полем inserted_rows.
 //
 // Формат вывода — docs/format-spec.md v1.0 rev 3: NDJSON без BOM, LF-терминатор
 // каждой записи. Порядок записей внутри файла = порядок событий в файле при
@@ -25,14 +33,19 @@
 
 #include <chrono>
 #include <cinttypes>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <system_error>
 #include <thread>
 #include <vector>
+
+#include "clickhouse_sink.hpp"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -46,8 +59,13 @@ namespace {
 struct CliConfig {
     std::string input;
     unsigned workers = 0;   // 0 → hardware_concurrency (клампится в parse_args)
-    std::string output;     // путь к NDJSON; пуст при null_sink
+    std::string output;     // путь к NDJSON; пуст при null_sink/clickhouse
     bool null_sink = false;
+    bool clickhouse = false;
+    std::string ch_dsn;     // хвост "--sink clickhouse:<dsn>" (пуст → дефолты)
+    std::uint64_t batch_rows = 50000;          // батч ClickHouse: строк
+    std::uint64_t batch_bytes = 64ull << 20;   // … или байт
+    std::uint64_t flush_ms = 1000;             // … или мс с прошлого флаша
     std::string stats_json;
 };
 
@@ -55,8 +73,21 @@ void usage() {
     std::fprintf(stderr,
                  "Использование:\n"
                  "  tj-agent-cpp <input_dir> [workers] [output.jsonl] [--no-output]\n"
-                 "  tj-agent-cpp --input <dir> [--threads N] [--sink null|file:<path>] "
+                 "  tj-agent-cpp --input <dir> [--threads N] "
+                 "[--sink null|file:<path>|clickhouse[:<url>]]\n"
+                 "               [--batch-rows N] [--batch-bytes N] [--flush-ms N] "
                  "[--stats-json <path>]\n");
+}
+
+bool parse_u64(const char* s, std::uint64_t& out, const char* what) {
+    char* end = nullptr;
+    unsigned long long v = std::strtoull(s, &end, 10);
+    if (end == s || *end != '\0' || v == 0ull || v == ULLONG_MAX) {
+        std::fprintf(stderr, "Ошибка: %s должен быть положительным целым числом\n", what);
+        return false;
+    }
+    out = static_cast<std::uint64_t>(v);
+    return true;
 }
 
 unsigned default_workers() {
@@ -109,10 +140,19 @@ bool parse_flag_args(int argc, char** argv, CliConfig& cfg) {
             if (!v) return false;
             cfg.stats_json = v;
             ++i;
-        } else if (std::strcmp(a, "--batch-rows") == 0 || std::strcmp(a, "--batch-bytes") == 0 ||
-                   std::strcmp(a, "--flush-ms") == 0) {
-            // Параметры батчирования не влияют на file/null-sink — принимаем и игнорируем
-            if (!next(i)) return false;
+        } else if (std::strcmp(a, "--batch-rows") == 0) {
+            const char* v = next(i);
+            if (!v || !parse_u64(v, cfg.batch_rows, "--batch-rows")) return false;
+            ++i;
+        } else if (std::strcmp(a, "--batch-bytes") == 0) {
+            const char* v = next(i);
+            if (!v || !parse_u64(v, cfg.batch_bytes, "--batch-bytes")) return false;
+            ++i;
+        } else if (std::strcmp(a, "--flush-ms") == 0) {
+            // Параметры батчирования влияют только на clickhouse-sink;
+            // для file/null принимаются и игнорируются (контракт bake-off).
+            const char* v = next(i);
+            if (!v || !parse_u64(v, cfg.flush_ms, "--flush-ms")) return false;
             ++i;
         } else if (std::strcmp(a, "--follow") == 0) {
             std::fprintf(stderr, "Ошибка: --follow пока не реализован (фаза 3)\n");
@@ -128,7 +168,8 @@ bool parse_flag_args(int argc, char** argv, CliConfig& cfg) {
         return false;
     }
     if (sink.empty()) {
-        std::fprintf(stderr, "Ошибка: обязателен --sink {null|file:<path>}\n");
+        std::fprintf(stderr,
+                     "Ошибка: обязателен --sink {null|file:<path>|clickhouse[:<url>]}\n");
         return false;
     }
     if (sink == "null") {
@@ -139,9 +180,15 @@ bool parse_flag_args(int argc, char** argv, CliConfig& cfg) {
             std::fprintf(stderr, "Ошибка: пустой путь в --sink file:<path>\n");
             return false;
         }
+    } else if (sink == "clickhouse") {
+        cfg.clickhouse = true;
     } else if (sink.rfind("clickhouse:", 0) == 0) {
-        std::fprintf(stderr, "Ошибка: --sink clickhouse пока не реализован (фаза 2, e2e-серия)\n");
-        return false;
+        cfg.clickhouse = true;
+        cfg.ch_dsn = sink.substr(11);
+        if (cfg.ch_dsn.empty()) {
+            std::fprintf(stderr, "Ошибка: пустой DSN в --sink clickhouse:<url>\n");
+            return false;
+        }
     } else {
         std::fprintf(stderr, "Ошибка: неизвестный sink \"%s\"\n", sink.c_str());
         return false;
@@ -189,7 +236,9 @@ bool parse_args(int argc, char** argv, CliConfig& cfg) {
 // Контракт bakeoff-protocol §3: {"events":N,"files":M,"skips":K,"bytes":B}
 // плюс расшифровка skips отдельными полями (приёмник обязан игнорировать
 // незнакомые). Порядок ключей — как у Go-агента (алфавитный).
-void write_stats_json(const CliConfig& cfg, const tj::RunStats& st) {
+// inserted_rows — только для clickhouse-sink (nullptr → поле не пишется).
+void write_stats_json(const CliConfig& cfg, const tj::RunStats& st,
+                      const std::uint64_t* inserted_rows = nullptr) {
     if (cfg.stats_json.empty()) return;
 #ifdef _WIN32
     FILE* f = _wfopen(fs::u8path(cfg.stats_json).wstring().c_str(), L"wb");
@@ -200,15 +249,78 @@ void write_stats_json(const CliConfig& cfg, const tj::RunStats& st) {
         std::fprintf(stderr, "Ошибка записи --stats-json %s\n", cfg.stats_json.c_str());
         return;
     }
+    std::fprintf(f, "{\"bytes\":%" PRIu64 ",\"events\":%" PRIu64 ",\"failed_files\":%" PRIu64
+                 ",\"files\":%" PRIu64, st.bytes, st.events, st.failed_files, st.files);
+    if (inserted_rows) {
+        std::fprintf(f, ",\"inserted_rows\":%" PRIu64, *inserted_rows);
+    }
     std::fprintf(f,
-                 "{\"bytes\":%" PRIu64 ",\"events\":%" PRIu64 ",\"failed_files\":%" PRIu64
-                 ",\"files\":%" PRIu64 ",\"parse_skips\":%" PRIu64 ",\"skips\":%" PRIu64
+                 ",\"parse_skips\":%" PRIu64 ",\"skips\":%" PRIu64
                  ",\"small_file_skips\":%" PRIu64 "}\n",
-                 st.bytes, st.events, st.failed_files, st.files, st.parse_skips,
-                 st.parse_skips + st.small_file_skips, st.small_file_skips);
+                 st.parse_skips, st.parse_skips + st.small_file_skips, st.small_file_skips);
     if (std::fclose(f) != 0) {
         std::fprintf(stderr, "Ошибка записи --stats-json %s\n", cfg.stats_json.c_str());
     }
+}
+
+// --sink clickhouse: писатель конвейера отдаёт RowBinary-чанки прямиком в
+// HTTP-батчер. Ошибка вставки/подключения фатальна (exit 1) — конвейер при
+// этом корректно дренируется (см. NormalizerPipeline::run_rowbinary).
+int run_clickhouse(const CliConfig& cfg, tj::NormalizerPipeline& pipeline,
+                   const tj::NormalizerPipeline::FileFn& on_file) {
+    tj_cli::ClickHouseConfig chc;
+    chc.batch_rows = cfg.batch_rows;
+    chc.batch_bytes = cfg.batch_bytes;
+    chc.flush_ms = cfg.flush_ms;
+    std::string dsn_err;
+    if (!tj_cli::parse_clickhouse_dsn(cfg.ch_dsn, chc, dsn_err)) {
+        std::fprintf(stderr, "Ошибка: %s\n", dsn_err.c_str());
+        return 1;
+    }
+
+    auto start = std::chrono::steady_clock::now();
+
+    std::unique_ptr<tj_cli::ClickHouseSink> sink;
+    try {
+        sink = std::make_unique<tj_cli::ClickHouseSink>(std::move(chc));
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "Ошибка подключения к ClickHouse: %s\n", e.what());
+        return 1;
+    }
+
+    tj::RunStats st;
+    try {
+        st = pipeline.run_rowbinary(
+            [&](const char* data, std::size_t len, std::uint64_t rows) {
+                sink->append(data, len, rows);
+            },
+            on_file);
+        sink->finish();
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "Ошибка вставки в ClickHouse: %s\n", e.what());
+        return 1;
+    }
+
+    double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    double mb = static_cast<double>(st.bytes) / (1024.0 * 1024.0);
+    double speed = sec > 0 ? mb / sec : 0.0;
+    std::uint64_t inserted = sink->inserted_rows();
+    std::fprintf(stdout,
+                 "Файлов: %" PRIu64 " (ошибок открытия: %" PRIu64 ", пропущено <100 байт: %" PRIu64
+                 ") | Событий: %" PRIu64 " | parse_skips: %" PRIu64
+                 " | %.2f МБ за %.3f с (%.1f МБ/с, workers=%u)\n",
+                 st.files, st.failed_files, st.small_file_skips, st.events, st.parse_skips,
+                 mb, sec, speed, cfg.workers);
+    std::fprintf(stdout, "ClickHouse: вставлено %" PRIu64 " строк за %.3f с (%.0f строк/с)\n",
+                 inserted, sec, sec > 0 ? static_cast<double>(inserted) / sec : 0.0);
+
+    write_stats_json(cfg, st, &inserted);
+
+    if (st.failed_files > 0) {
+        std::fprintf(stderr, "ВНИМАНИЕ: часть файлов не обработана (см. счётчик ошибок)\n");
+        return 2;
+    }
+    return 0;
 }
 
 int run(int argc, char** argv) {
@@ -238,9 +350,26 @@ int run(int argc, char** argv) {
         // трактует отсутствующий файл как вывод нулевой длины).
         std::fprintf(stdout, "Не найдено .log файлов для обработки\n");
         tj::RunStats st = pipeline.run(nullptr); // только счётчики discovery
-        write_stats_json(cfg, st);
+        const std::uint64_t zero_rows = 0;
+        write_stats_json(cfg, st, cfg.clickhouse ? &zero_rows : nullptr);
         return static_cast<int>(st.failed_files > 0 ? 2 : 0);
     }
+
+    // Прогресс — в stdout, как у эталона (раз в 50 файлов).
+    std::uint64_t files_done = 0;
+    const std::uint64_t files_total = pipeline.file_count();
+    tj::NormalizerPipeline::FileFn on_file = [&](const tj::FileCompletion&) {
+        ++files_done;
+        if (files_done % 50 == 0 || files_done == files_total) {
+            std::fprintf(stdout, "Прочитано: %" PRIu64 "/%" PRIu64 " файлов (%.1f%%)\n",
+                         files_done, files_total,
+                         100.0 * static_cast<double>(files_done) /
+                             static_cast<double>(files_total));
+            std::fflush(stdout);
+        }
+    };
+
+    if (cfg.clickhouse) return run_clickhouse(cfg, pipeline, on_file);
 
     auto start = std::chrono::steady_clock::now();
 
@@ -294,20 +423,6 @@ int run(int argc, char** argv) {
             if (wbuf.size() >= kWbufLimit) flush_wbuf();
         };
     }
-
-    // Прогресс — в stdout в файловом режиме, как у эталона (раз в 50 файлов).
-    std::uint64_t files_done = 0;
-    const std::uint64_t files_total = pipeline.file_count();
-    tj::NormalizerPipeline::FileFn on_file = [&](const tj::FileCompletion&) {
-        ++files_done;
-        if (files_done % 50 == 0 || files_done == files_total) {
-            std::fprintf(stdout, "Прочитано: %" PRIu64 "/%" PRIu64 " файлов (%.1f%%)\n",
-                         files_done, files_total,
-                         100.0 * static_cast<double>(files_done) /
-                             static_cast<double>(files_total));
-            std::fflush(stdout);
-        }
-    };
 
     tj::RunStats st = pipeline.run(on_record, on_file);
 

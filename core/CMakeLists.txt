@@ -1,11 +1,12 @@
 # core/ — C++ ядро нормализатора ТЖ 1С: статическая библиотека tj_core,
 # тонкий CLI tj-agent-cpp (участник bake-off) и C ABI tj_core_ffi (DLL).
 #
-# Сборка (из корня репозитория, внутри окружения vcvars64):
-#   cmake -G "NMake Makefiles" -S core -B core/build
-#   cmake --build core/build
-# Артефакты: core/build/tj-agent-cpp.exe, core/build/tj_core_ffi.dll,
-#            core/build/tj_ffi_selftest.exe
+# Сборка (из корня репозитория; генератор ТОЛЬКО Visual Studio — NMake ломается
+# на кириллическом пути репозитория, см. README «Известная ловушка»):
+#   cmake -G "Visual Studio 17 2022" -A x64 -S core -B core/build
+#   cmake --build core/build --config Release
+# Артефакты: core/build/Release/{tj-agent-cpp.exe, tj_core_ffi.dll,
+#            tj_ffi_selftest.exe}
 cmake_minimum_required(VERSION 3.20)
 project(tj_core LANGUAGES CXX C)
 
@@ -45,8 +46,13 @@ target_include_directories(tj_core
 )
 
 # --- CLI (участник bake-off; замена cpp_parse/count_contexts) ---------------
-add_executable(tj-agent-cpp cli/main.cpp)
+# clickhouse_sink: RowBinary over HTTP через системный WinHTTP — внешних
+# зависимостей у --sink clickhouse нет.
+add_executable(tj-agent-cpp cli/main.cpp cli/clickhouse_sink.cpp)
 target_link_libraries(tj-agent-cpp PRIVATE tj_core)
+if(WIN32)
+    target_link_libraries(tj-agent-cpp PRIVATE winhttp)
+endif()
 
 # --- C ABI (FFI) -------------------------------------------------------------
 option(TJ_BUILD_FFI "Собирать C ABI (tj_core_ffi.dll + selftest)" ON)

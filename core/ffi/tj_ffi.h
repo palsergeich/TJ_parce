@@ -52,11 +52,14 @@ typedef void (*tj_file_fn)(void* user_data, const char* utf8_path,
                            uint64_t bytes, int32_t ok);
 
 typedef struct tj_config {
-    uint32_t workers;          /* 0 = число аппаратных потоков */
-    uint32_t admission_window; /* 0 = 2*workers; лимит файлов «разобран, но не записан» */
-    uint32_t chunk_bytes;      /* 0 = 4 МБ; порог передачи буфера писателю */
-    uint32_t map_bytes;        /* 0 = 64 МБ; окно mmap входного файла (файлы не
-                                  отображаются целиком — резидентность ограничена) */
+    uint32_t workers;             /* 0 = число аппаратных потоков */
+    uint32_t admission_budget_mb; /* 0 = auto: max(64 МБ × workers, 256 МБ).
+                                     Байтовый бюджет допуска: суммарный размер
+                                     НЕголовных файлов «разобран, но не записан»;
+                                     головной файл стримится вне бюджета */
+    uint32_t chunk_bytes;         /* 0 = 4 МБ; порог передачи буфера писателю */
+    uint32_t map_bytes;           /* 0 = 64 МБ; окно mmap входного файла (файлы не
+                                     отображаются целиком — резидентность ограничена) */
 } tj_config;
 
 typedef struct tj_stats {

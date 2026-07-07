@@ -6,8 +6,9 @@
 //     tj-agent-go <input_dir> [workers] [output.jsonl] [--no-output]
 //
 //  2. Контракт bake-off (docs/bakeoff-protocol.md §1.1, batch-режим):
-//     tj-agent-go --input <dir> --threads <N> --sink {null|file:<path>}
-//     [--stats-json <path>]
+//     tj-agent-go --input <dir> --threads <N>
+//     --sink {null|file:<path>|clickhouse[:<dsn>]}
+//     [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]
 //
 // Формат вывода — docs/format-spec.md v1.0: NDJSON без BOM, LF-терминатор
 // каждой записи. Порядок записей внутри файла = порядок событий в файле
@@ -20,6 +21,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -33,6 +35,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"tjagent/internal/chsink"
 	"tjagent/internal/parser"
 )
 
@@ -41,14 +44,31 @@ const (
 	outChunkBytes           = 4 << 20   // NDJSON-чанк, передаваемый писателю
 	admissionBytesPerWorker = 64 << 20  // бюджет допуска не-головных файлов, на воркера
 	admissionBytesFloor     = 256 << 20 // нижняя граница бюджета
+	chSlabRows              = 1024      // слаб строк воркер→батчер ClickHouse
+)
+
+// defaultCHDSN — DSN по умолчанию для --sink clickhouse без явного DSN
+// (локальный tj-clickhouse, native TCP 9001, база tj_bench → таблица events).
+const defaultCHDSN = "clickhouse://localhost:9001/tj_bench"
+
+// Политика батчей ClickHouse по умолчанию (bakeoff-protocol §1.2):
+// 50 000 строк ИЛИ 64 МБ ИЛИ 1000 мс — что наступит раньше.
+const (
+	defaultBatchRows  = 50000
+	defaultBatchBytes = 64 << 20
+	defaultFlushMS    = 1000
 )
 
 type config struct {
-	input     string
-	workers   int
-	output    string // путь к NDJSON; пуст при nullSink
-	nullSink  bool
-	statsJSON string
+	input      string
+	workers    int
+	output     string // путь к NDJSON; пуст при nullSink
+	nullSink   bool
+	statsJSON  string
+	chDSN      string // непустой → sink clickhouse (DSN может нести ?table=)
+	batchRows  int
+	batchBytes int64
+	flushMS    int
 }
 
 type fileMeta struct {
@@ -63,6 +83,7 @@ type stats struct {
 	smallSkips atomic.Uint64
 	failed     atomic.Uint64
 	bytes      atomic.Uint64
+	inserted   atomic.Uint64 // строки, подтверждённые ClickHouse (только CH-sink)
 }
 
 func main() { os.Exit(run(os.Args[1:])) }
@@ -71,7 +92,8 @@ func usage() {
 	fmt.Fprint(os.Stderr,
 		"Использование:\n"+
 			"  tj-agent-go <input_dir> [workers] [output.jsonl] [--no-output]\n"+
-			"  tj-agent-go --input <dir> [--threads N] [--sink null|file:<path>] [--stats-json <path>]\n")
+			"  tj-agent-go --input <dir> [--threads N] [--sink null|file:<path>|clickhouse[:<dsn>]]\n"+
+			"              [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]\n")
 }
 
 func run(args []string) int {
@@ -99,6 +121,10 @@ func run(args []string) int {
 	}
 
 	start := time.Now()
+
+	if cfg.chDSN != "" {
+		return runClickHouse(cfg, files, &s, start)
+	}
 
 	// Выход открываем до разбора: пустой (но существующий) файл — валидный
 	// результат, если все события отфильтрованы (как у эталонного exe).
@@ -259,7 +285,12 @@ func run(args []string) int {
 }
 
 func parseArgs(args []string) (config, bool) {
-	cfg := config{workers: maxInt(1, minInt(1024, numCPU()))}
+	cfg := config{
+		workers:    maxInt(1, minInt(1024, numCPU())),
+		batchRows:  defaultBatchRows,
+		batchBytes: defaultBatchBytes,
+		flushMS:    defaultFlushMS,
+	}
 	if len(args) == 0 {
 		usage()
 		return cfg, false
@@ -342,11 +373,43 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 			}
 			cfg.statsJSON = v
 			i++
-		case "--batch-rows", "--batch-bytes", "--flush-ms":
-			// Параметры батчирования не влияют на file/null-sink — принимаем и игнорируем
-			if _, ok := next(i, args[i]); !ok {
+		case "--batch-rows":
+			// Параметры батчирования действуют только на ClickHouse-sink;
+			// для file/null принимаются и игнорируются (контракт §1.1)
+			v, ok := next(i, args[i])
+			if !ok {
 				return cfg, false
 			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 10_000_000 {
+				fmt.Fprintln(os.Stderr, "Ошибка: --batch-rows должен быть целым числом от 1 до 10000000")
+				return cfg, false
+			}
+			cfg.batchRows = n
+			i++
+		case "--batch-bytes":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n < 1 || n > 1<<40 {
+				fmt.Fprintln(os.Stderr, "Ошибка: --batch-bytes должен быть целым числом от 1 до 2^40")
+				return cfg, false
+			}
+			cfg.batchBytes = n
+			i++
+		case "--flush-ms":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 3_600_000 {
+				fmt.Fprintln(os.Stderr, "Ошибка: --flush-ms должен быть целым числом от 1 до 3600000")
+				return cfg, false
+			}
+			cfg.flushMS = n
 			i++
 		case "--follow":
 			fmt.Fprintln(os.Stderr, "Ошибка: --follow пока не реализован (фаза 3)")
@@ -363,7 +426,7 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 	}
 	switch {
 	case sink == "":
-		fmt.Fprintln(os.Stderr, "Ошибка: обязателен --sink {null|file:<path>}")
+		fmt.Fprintln(os.Stderr, "Ошибка: обязателен --sink {null|file:<path>|clickhouse[:<dsn>]}")
 		return cfg, false
 	case sink == "null":
 		cfg.nullSink = true
@@ -373,14 +436,38 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 			fmt.Fprintln(os.Stderr, "Ошибка: пустой путь в --sink file:<path>")
 			return cfg, false
 		}
-	case strings.HasPrefix(sink, "clickhouse:"):
-		fmt.Fprintln(os.Stderr, "Ошибка: --sink clickhouse пока не реализован (фаза 2, e2e-серия)")
-		return cfg, false
+	case sink == "clickhouse" || strings.HasPrefix(sink, "clickhouse:"):
+		cfg.chDSN = normalizeCHDSN(sink)
 	default:
 		fmt.Fprintf(os.Stderr, "Ошибка: неизвестный sink %q\n", sink)
 		return cfg, false
 	}
 	return cfg, true
+}
+
+// normalizeCHDSN приводит значение --sink clickhouse[:<dsn>] к полному DSN.
+// Принимаются равнозначные написания:
+//
+//	clickhouse                                   → DSN по умолчанию (defaultCHDSN)
+//	clickhouse://host:9001/db[?...]              → как есть
+//	clickhouse:clickhouse://host:9001/db[?...]   → буквальный <dsn> из контракта
+//	clickhouse:host:9001/db[?...]                → дописывается схема clickhouse://
+//
+// Целевая таблица настраивается query-параметром table (например
+// ...?table=events_go), по умолчанию — events в базе из DSN.
+func normalizeCHDSN(sink string) string {
+	rest := strings.TrimPrefix(sink, "clickhouse")
+	rest = strings.TrimPrefix(rest, ":")
+	switch {
+	case rest == "":
+		return defaultCHDSN
+	case strings.HasPrefix(rest, "//"):
+		return "clickhouse:" + rest
+	case strings.Contains(rest, "://"):
+		return rest
+	default:
+		return "clickhouse://" + rest
+	}
 }
 
 // findLogFiles — рекурсивный поиск *.log размером ≥ MinFileSize.
@@ -420,6 +507,165 @@ func findLogFiles(root string, s *stats) []fileMeta {
 	}
 	sort.SliceStable(files, func(i, j int) bool { return files[i].size > files[j].size })
 	return files
+}
+
+// runClickHouse — конвейер --sink clickhouse (сценарий A, batch-ingest).
+//
+// В отличие от file-sink здесь нет упорядоченного писателя: батчи уходят в
+// ClickHouse по мере разбора (порядок вставки между файлами не гарантируется
+// и протоколом не требуется — MergeTree переупорядочивает по своему ORDER BY);
+// порядок событий ОДНОГО файла в потоке строк сохраняется (файл разбирается
+// одним воркером, слабы и батчи — FIFO). Память ограничена без байтового
+// бюджета допуска: воркер держит O(чанк чтения + слаб), канал слабов и
+// текущий батч ограничены порогами батчирования.
+//
+// Ошибки: недоступный сервер — фатально до начала разбора (Ping в Open);
+// ошибка вставки по ходу — flush-then-fail (см. internal/chsink): воркеры
+// останавливаются по Fatal(), exit 1, в статистике — только подтверждённые
+// строки.
+func runClickHouse(cfg config, files []fileMeta, s *stats, start time.Time) int {
+	sink, err := chsink.Open(context.Background(), chsink.Config{
+		DSN:        cfg.chDSN,
+		BatchRows:  cfg.batchRows,
+		BatchBytes: cfg.batchBytes,
+		Flush:      time.Duration(cfg.flushMS) * time.Millisecond,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Ошибка: ClickHouse-sink: %v\n", err)
+		return 1
+	}
+
+	var nextFile atomic.Int64
+	var wg sync.WaitGroup
+	for w := 0; w < cfg.workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cw := &chWorker{sink: sink, builder: chsink.NewRowBuilder()}
+			inBuf := make([]byte, 0, parser.ReadChunk+parser.GuardZone)
+			for {
+				i := int(nextFile.Add(1)) - 1
+				if i >= len(files) || cw.aborted() {
+					break
+				}
+				inBuf = cw.processFile(files[i], s, inBuf)
+			}
+			cw.flush() // хвост слаба
+		}()
+	}
+	wg.Wait()
+
+	insErr := sink.Finish() // финальный flush недобранного батча
+	s.inserted.Store(sink.Inserted())
+
+	elapsed := time.Since(start)
+	reportStats(cfg, s, len(files), elapsed)
+	sec := elapsed.Seconds()
+	rps := 0.0
+	if sec > 0 {
+		rps = float64(s.inserted.Load()) / sec
+	}
+	fmt.Fprintf(os.Stdout, "ClickHouse (%s): подтверждено %d строк (%.0f строк/с end-to-end)\n",
+		sink.Table(), s.inserted.Load(), rps)
+	writeStatsJSON(cfg, s, len(files))
+
+	if insErr != nil {
+		fmt.Fprintf(os.Stderr, "ОШИБКА: вставка в ClickHouse не удалась: %v\n", insErr)
+		fmt.Fprintf(os.Stderr, "Подтверждено сервером до ошибки: %d строк; падавший батч не вставлен целиком (flush-then-fail)\n",
+			s.inserted.Load())
+		return 1
+	}
+	if s.failed.Load() > 0 {
+		fmt.Fprintln(os.Stderr, "ВНИМАНИЕ: часть файлов не обработана (см. счётчик ошибок)")
+		return 2
+	}
+	return 0
+}
+
+// chWorker — состояние одного воркера ClickHouse-конвейера: собственный
+// RowBuilder (интернирование+scratch) и накопительный слаб строк.
+type chWorker struct {
+	sink    *chsink.Sink
+	builder *chsink.RowBuilder
+	slab    []chsink.Row
+	stopped bool // получен Fatal() — производство строк прекращено
+}
+
+func (w *chWorker) aborted() bool {
+	if w.stopped {
+		return true
+	}
+	select {
+	case <-w.sink.Fatal():
+		w.stopped = true
+		return true
+	default:
+		return false
+	}
+}
+
+// flush отправляет накопленный слаб батчеру; false — приёмник фатально упал.
+func (w *chWorker) flush() bool {
+	if w.stopped {
+		return false
+	}
+	if len(w.slab) == 0 {
+		return true
+	}
+	select {
+	case w.sink.In() <- w.slab:
+		w.slab = make([]chsink.Row, 0, chSlabRows)
+		return true
+	case <-w.sink.Fatal():
+		w.stopped = true
+		return false
+	}
+}
+
+// processFile — аналог processFile file-sink'а, но события конвертируются в
+// строки таблицы на уровне разобранных полей (parser.ParseEventFields), без
+// промежуточного NDJSON. Слаб отправляется по наполнению и в конце файла
+// (строки не задерживаются у воркера — таймер flush батчера видит их сразу).
+func (w *chWorker) processFile(fm fileMeta, s *stats, inBuf []byte) []byte {
+	f, err := os.Open(fm.path)
+	if err != nil {
+		s.failed.Add(1)
+		fmt.Fprintf(os.Stderr, "Ошибка открытия файла: %s: %v\n", fm.path, err)
+		return inBuf
+	}
+	defer f.Close()
+
+	filename := filepath.Base(fm.path)
+	filePath := relFilePath(fm.path)
+	if w.slab == nil {
+		w.slab = make([]chsink.Row, 0, chSlabRows)
+	}
+
+	var events, skips uint64
+	inBuf, bytesRead, err := parser.ScanEvents(f, inBuf, func(ev []byte) {
+		if w.stopped { // после фатальной ошибки дочитываем файл вхолостую
+			return
+		}
+		fld, ok := parser.ParseEventFields(ev)
+		if !ok {
+			skips++
+			return
+		}
+		w.slab = append(w.slab, w.builder.Build(fld, fm.datePrefix, filename, filePath))
+		events++
+		if len(w.slab) >= chSlabRows {
+			w.flush()
+		}
+	})
+	s.bytes.Add(bytesRead)
+	if err != nil {
+		s.failed.Add(1)
+		fmt.Fprintf(os.Stderr, "Ошибка чтения файла: %s: %v\n", fm.path, err)
+	}
+	w.flush()
+	s.events.Add(events)
+	s.parseSkips.Add(skips)
+	return inBuf
 }
 
 // processFile читает файл чанками (parser.ScanEvents) и отправляет готовые
@@ -525,7 +771,9 @@ func reportStats(cfg config, s *stats, nFiles int, elapsed time.Duration) {
 }
 
 // writeStatsJSON — контракт bakeoff-protocol §3: {"events":N,"files":M,"skips":K,"bytes":B}
-// плюс расшифровка skips отдельными полями (приёмник обязан игнорировать незнакомые).
+// плюс расшифровка skips отдельными полями (приёмник обязан игнорировать
+// незнакомые). Для ClickHouse-sink добавляется inserted_rows — строки,
+// подтверждённые сервером (на успешном прогоне равно events).
 func writeStatsJSON(cfg config, s *stats, nFiles int) {
 	if cfg.statsJSON == "" {
 		return
@@ -538,6 +786,9 @@ func writeStatsJSON(cfg config, s *stats, nFiles int) {
 		"parse_skips":      s.parseSkips.Load(),
 		"small_file_skips": s.smallSkips.Load(),
 		"failed_files":     s.failed.Load(),
+	}
+	if cfg.chDSN != "" {
+		obj["inserted_rows"] = s.inserted.Load()
 	}
 	b, _ := json.Marshal(obj)
 	if err := os.WriteFile(cfg.statsJSON, append(b, '\n'), 0o644); err != nil {

@@ -43,7 +43,8 @@ TJ_API tj_pipeline* tj_create(const tj_config* cfg, tj_sink_fn sink, void* user_
         tj::Config c;
         if (cfg) {
             c.workers = cfg->workers;
-            c.admission_window = cfg->admission_window;
+            c.admission_budget_bytes =
+                static_cast<std::uint64_t>(cfg->admission_budget_mb) << 20;
             c.chunk_bytes = cfg->chunk_bytes;
             if (cfg->map_bytes != 0) c.map_bytes = cfg->map_bytes;
         }

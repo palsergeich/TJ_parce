@@ -6,8 +6,9 @@
 //!    `tj-agent-rs <input_dir> [workers] [output.jsonl] [--no-output]`
 //!
 //! 2. Контракт bake-off (docs/bakeoff-protocol.md §1.1, batch-режим):
-//!    `tj-agent-rs --input <dir> --threads <N> --sink {null|file:<path>}
-//!    [--stats-json <path>]`
+//!    `tj-agent-rs --input <dir> --threads <N>
+//!    --sink {null|file:<path>|clickhouse[:<dsn>]}
+//!    [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]`
 //!
 //! Формат вывода — docs/format-spec.md v1.0 (rev 3): NDJSON без BOM,
 //! LF-терминатор каждой записи. Порядок записей внутри файла = порядок
@@ -17,6 +18,7 @@
 //! Exit-коды: 0 — успех; 1 — ошибка аргументов/каталога/записи вывода;
 //! 2 — часть входных файлов не удалось прочитать (KI-12).
 
+mod chsink;
 mod parser;
 mod scanner;
 mod walker;
@@ -25,10 +27,10 @@ use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, MAIN_SEPARATOR};
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Condvar, Mutex};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use walker::{find_log_files, FileMeta};
 
@@ -53,6 +55,10 @@ struct Config {
     workers: usize,
     output: String, // путь к NDJSON; пуст при null_sink
     null_sink: bool,
+    clickhouse: Option<chsink::ChTarget>,
+    batch_rows: usize,
+    batch_bytes: usize,
+    flush_ms: u64,
     stats_json: String,
 }
 
@@ -65,7 +71,10 @@ fn usage() {
     eprint!(
         "Использование:\n  \
          tj-agent-rs <input_dir> [workers] [output.jsonl] [--no-output]\n  \
-         tj-agent-rs --input <dir> [--threads N] [--sink null|file:<path>] [--stats-json <path>]\n"
+         tj-agent-rs --input <dir> [--threads N] [--sink null|file:<path>|clickhouse[:<dsn>]]\n           \
+         [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]\n\
+         DSN ClickHouse: http://host[:порт][/база[/таблица]], по умолчанию\n\
+         http://localhost:8123/tj_bench/events (HTTP-порт, пользователь default)\n"
     );
 }
 
@@ -92,11 +101,15 @@ fn run(args: &[String]) -> i32 {
     if files.is_empty() {
         // Подходящих файлов нет → выходной файл НЕ создаётся, exit 0 (§6)
         println!("Не найдено .log файлов для обработки");
-        write_stats_json(&cfg, &stats, 0);
+        write_stats_json(&cfg, &stats, 0, cfg.clickhouse.as_ref().map(|_| 0));
         return 0;
     }
 
     let start = Instant::now();
+
+    if let Some(target) = &cfg.clickhouse {
+        return run_clickhouse(&cfg, target, &files, &stats, start);
+    }
 
     // Выход открываем до разбора: пустой (но существующий) файл — валидный
     // результат, если все события отфильтрованы (как у эталонного exe).
@@ -262,7 +275,7 @@ fn run(args: &[String]) -> i32 {
 
     let elapsed = start.elapsed().as_secs_f64();
     report_stats(&cfg, &stats, files.len(), elapsed);
-    write_stats_json(&cfg, &stats, files.len());
+    write_stats_json(&cfg, &stats, files.len(), None);
 
     if writer_failed {
         eprintln!("ОШИБКА: запись результатов не удалась, вывод неполный");
@@ -288,6 +301,10 @@ fn parse_args(args: &[String]) -> Option<Config> {
         workers: default_workers(),
         output: String::new(),
         null_sink: false,
+        clickhouse: None,
+        batch_rows: chsink::DEFAULT_BATCH_ROWS,
+        batch_bytes: chsink::DEFAULT_BATCH_BYTES,
+        flush_ms: chsink::DEFAULT_FLUSH_MS,
         stats_json: String::new(),
     };
     if args.is_empty() {
@@ -364,9 +381,36 @@ fn parse_flag_args(args: &[String], mut cfg: Config) -> Option<Config> {
                 cfg.stats_json = next(i)?.clone();
                 i += 1;
             }
-            "--batch-rows" | "--batch-bytes" | "--flush-ms" => {
-                // Параметры батчирования не влияют на file/null-sink — принимаем и игнорируем
-                next(i)?;
+            // Политика батчей ClickHouse-синка (bakeoff-protocol §1.2);
+            // для file/null принимаются и игнорируются
+            "--batch-rows" => {
+                match next(i)?.parse::<usize>() {
+                    Ok(v) if (1..=100_000_000).contains(&v) => cfg.batch_rows = v,
+                    _ => {
+                        eprintln!("Ошибка: --batch-rows должен быть целым числом от 1 до 100000000");
+                        return None;
+                    }
+                }
+                i += 1;
+            }
+            "--batch-bytes" => {
+                match next(i)?.parse::<usize>() {
+                    Ok(v) if (1..=(16 << 30)).contains(&v) => cfg.batch_bytes = v,
+                    _ => {
+                        eprintln!("Ошибка: --batch-bytes должен быть целым числом от 1 до 17179869184");
+                        return None;
+                    }
+                }
+                i += 1;
+            }
+            "--flush-ms" => {
+                match next(i)?.parse::<u64>() {
+                    Ok(v) if (1..=3_600_000).contains(&v) => cfg.flush_ms = v,
+                    _ => {
+                        eprintln!("Ошибка: --flush-ms должен быть целым числом от 1 до 3600000");
+                        return None;
+                    }
+                }
                 i += 1;
             }
             "--follow" => {
@@ -393,17 +437,179 @@ fn parse_flag_args(args: &[String], mut cfg: Config) -> Option<Config> {
             return None;
         }
         cfg.output = path.to_string();
-    } else if sink.starts_with("clickhouse:") {
-        eprintln!("Ошибка: --sink clickhouse пока не реализован (фаза 2, e2e-серия)");
-        return None;
+    } else if sink == "clickhouse" || sink.starts_with("clickhouse:") {
+        match chsink::parse_sink_dsn(&sink) {
+            Ok(t) => cfg.clickhouse = Some(t),
+            Err(e) => {
+                eprintln!("Ошибка: {e}");
+                return None;
+            }
+        }
     } else if sink.is_empty() {
-        eprintln!("Ошибка: обязателен --sink {{null|file:<path>}}");
+        eprintln!("Ошибка: обязателен --sink {{null|file:<path>|clickhouse[:<dsn>]}}");
         return None;
     } else {
         eprintln!("Ошибка: неизвестный sink \"{sink}\"");
         return None;
     }
     Some(cfg)
+}
+
+/// Пайплайн `--sink clickhouse`: воркеры разбирают файлы в RowBinary-куски
+/// (тот же сканер и автомат свойств, что у file-синка, но эмиттер —
+/// `chsink::RowEmitter`, без сборки/повторного разбора JSON), синк в главном
+/// потоке собирает батчи 50 000 строк / 64 МБ / 1000 мс и вставляет по HTTP.
+///
+/// Порядок строк: батчи уходят по мере готовности («flow as parsed»), без
+/// глобального межфайлового упорядочивания (СУБД оно не нужно — сортировка
+/// задаётся ORDER BY таблицы); события ОДНОГО файла попадают в поток вставки
+/// в исходном порядке файла (файл разбирается одним воркером, куски
+/// выкладываются последовательно, батчер границы кусков сохраняет).
+fn run_clickhouse(
+    cfg: &Config,
+    target: &chsink::ChTarget,
+    files: &[FileMeta],
+    stats: &Stats,
+    start: Instant,
+) -> i32 {
+    let mut client = chsink::ChClient::new(target);
+    // Fail-fast до разбора: неверный порт/БД/таблица → внятная ошибка, exit 1
+    if let Err(e) = client.check_ready(target) {
+        eprintln!("Ошибка ClickHouse ({}): {e}", target.host);
+        return 1;
+    }
+
+    // Обратное давление: очередь ограничена двумя батчами по байтам
+    let queue_cap = cfg.batch_bytes.saturating_mul(2).max(16 << 20);
+    let queue = chsink::SinkQueue::new(queue_cap, cfg.workers);
+    let next_job = AtomicUsize::new(0);
+    let mut inserted_rows = 0u64;
+    let mut batches = 0u64;
+    let mut sink_err: Option<chsink::ChError> = None;
+
+    thread::scope(|s| {
+        for _ in 0..cfg.workers {
+            let (queue, next_job) = (&queue, &next_job);
+            s.spawn(move || {
+                let mut read_buf: Vec<u8> = Vec::new();
+                let mut em = chsink::RowEmitter::new();
+                loop {
+                    let i = next_job.fetch_add(1, Relaxed);
+                    if i >= files.len() {
+                        break;
+                    }
+                    if !process_file_ch(&files[i], stats, &mut read_buf, &mut em, queue) {
+                        break; // вставка фатально упала — разбор бессмыслен
+                    }
+                }
+                queue.producer_done();
+            });
+        }
+
+        // Синк — текущий поток
+        let res = chsink::run_sink(
+            &mut client,
+            &queue,
+            cfg.batch_rows,
+            cfg.batch_bytes,
+            Duration::from_millis(cfg.flush_ms),
+            &mut inserted_rows,
+            &mut batches,
+        );
+        if let Err(e) = res {
+            queue.set_fatal(); // разбудить воркеров, ждущих место в очереди
+            sink_err = Some(e);
+        }
+    });
+
+    let elapsed = start.elapsed().as_secs_f64();
+    report_stats(cfg, stats, files.len(), elapsed);
+    let rows_per_sec = if elapsed > 0.0 {
+        inserted_rows as f64 / elapsed
+    } else {
+        0.0
+    };
+    println!(
+        "ClickHouse: вставлено {inserted_rows} строк в {}.{} ({batches} батчей, {rows_per_sec:.0} строк/с)",
+        target.db, target.table
+    );
+    write_stats_json(cfg, stats, files.len(), Some(inserted_rows));
+
+    if let Some(e) = sink_err {
+        eprintln!("ОШИБКА ClickHouse ({}): {e}", target.host);
+        eprintln!("ОШИБКА: вставка результатов не удалась, данные в БД неполные");
+        return 1;
+    }
+    if stats.failed.load(Relaxed) > 0 {
+        eprintln!("ВНИМАНИЕ: часть файлов не обработана (см. счётчик ошибок)");
+        return 2;
+    }
+    0
+}
+
+/// Разбор одного файла в RowBinary-куски для ClickHouse-синка (аналог
+/// `process_file`, но без JSON). Возвращает `false` при фатальной ошибке
+/// вставки — воркеру пора останавливаться.
+fn process_file_ch(
+    fm: &FileMeta,
+    s: &Stats,
+    read_buf: &mut Vec<u8>,
+    em: &mut chsink::RowEmitter,
+    queue: &chsink::SinkQueue,
+) -> bool {
+    let mut f = match File::open(&fm.path) {
+        Ok(f) => f,
+        Err(e) => {
+            s.failed.fetch_add(1, Relaxed);
+            eprintln!("Ошибка открытия файла: {}: {}", fm.path.display(), e);
+            return true;
+        }
+    };
+
+    let filename = fm
+        .path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let file_path = rel_file_path(&fm.path);
+    em.begin_file(
+        chsink::hour_base_micros(&fm.date_prefix),
+        filename.as_bytes(),
+        file_path.as_bytes(),
+    );
+
+    let mut events = 0u64;
+    let mut skips = 0u64;
+    let mut alive = true;
+    let res = scanner::scan_events(&mut f, read_buf, |ev| {
+        if !alive {
+            return; // фатал: дочитываем без разбора (scan_events не прерывается)
+        }
+        if parser::parse_event(ev, em) {
+            events += 1;
+        } else {
+            skips += 1;
+        }
+        if em.chunk_bytes() >= chsink::CHUNK_TARGET_BYTES {
+            alive = queue.push(em.take_chunk());
+        }
+    });
+    match res {
+        Ok(total) => {
+            s.bytes.fetch_add(total, Relaxed);
+        }
+        Err(e) => {
+            // Уже выданные события остаются (KI-12, exit 2 — паритет с file-синком)
+            s.failed.fetch_add(1, Relaxed);
+            eprintln!("Ошибка чтения файла: {}: {}", fm.path.display(), e);
+        }
+    }
+    if alive && em.chunk_bytes() > 0 {
+        alive = queue.push(em.take_chunk());
+    }
+    s.events.fetch_add(events, Relaxed);
+    s.parse_skips.fetch_add(skips, Relaxed);
+    alive
 }
 
 /// Разбирает файл потоково: чтение кусками через `scanner::scan_events`
@@ -536,19 +742,25 @@ fn report_stats(cfg: &Config, s: &Stats, n_files: usize, sec: f64) {
 /// Контракт bakeoff-protocol §3: {"events":N,"files":M,"skips":K,"bytes":B}
 /// плюс расшифровка skips отдельными полями (приёмник обязан игнорировать
 /// незнакомые). Ключи в алфавитном порядке — байт-в-байт с Go-агентом
-/// (json.Marshal сортирует ключи map).
-fn write_stats_json(cfg: &Config, s: &Stats, n_files: usize) {
+/// (json.Marshal сортирует ключи map). `inserted` задан только у
+/// clickhouse-синка — добавляет поле `inserted_rows` (подтверждённые вставки).
+fn write_stats_json(cfg: &Config, s: &Stats, n_files: usize, inserted: Option<u64>) {
     if cfg.stats_json.is_empty() {
         return;
     }
     let parse_skips = s.parse_skips.load(Relaxed);
     let small_skips = s.small_skips.load(Relaxed);
+    let inserted_part = match inserted {
+        Some(n) => format!("\"inserted_rows\":{n},"),
+        None => String::new(),
+    };
     let json = format!(
-        "{{\"bytes\":{},\"events\":{},\"failed_files\":{},\"files\":{},\"parse_skips\":{},\"skips\":{},\"small_file_skips\":{}}}\n",
+        "{{\"bytes\":{},\"events\":{},\"failed_files\":{},\"files\":{},{}\"parse_skips\":{},\"skips\":{},\"small_file_skips\":{}}}\n",
         s.bytes.load(Relaxed),
         s.events.load(Relaxed),
         s.failed.load(Relaxed),
         n_files,
+        inserted_part,
         parse_skips,
         parse_skips + small_skips,
         small_skips

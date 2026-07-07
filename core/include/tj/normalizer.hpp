@@ -6,9 +6,10 @@
 //
 // Детерминизм (требование v1.1, жёстче KI-11): порядок записей внутри файла =
 // порядок событий в файле; файлы — по убыванию размера; вывод байт-идентичен
-// при любом числе потоков. Реализовано по образцу Go-агента: окно допуска
-// (admission window) ограничивает число файлов «разобран, но ещё не записан»
-// величиной ~2×workers — на корпусе 175 ГБ буферы не копятся без предела.
+// при любом числе потоков. Память ограничена БАЙТОВЫМ бюджетом допуска
+// (модель agents/go и agents/rust): неголовные файлы допускаются к разбору,
+// только если их размер помещается в остаток бюджета max(64 МБ × workers,
+// 256 МБ); головной файл допускается безусловно и стримится чанками.
 #pragma once
 
 #include <cstddef>
@@ -24,9 +25,12 @@ namespace tj {
 struct Config {
     // Число рабочих потоков-разборщиков. 0 → std::thread::hardware_concurrency().
     unsigned workers = 0;
-    // Окно допуска: максимум файлов в состоянии «разобран, но не записан».
-    // 0 → 2 × workers. Это и есть ограничитель памяти конвейера.
-    std::size_t admission_window = 0;
+    // Байтовый бюджет допуска: суммарный размер НЕголовных файлов в состоянии
+    // «разбирается/разобран, но не записан». 0 → max(64 МБ × workers, 256 МБ).
+    // Головной файл (его очередь писаться) допускается вне бюджета и стримится
+    // с ограниченной очередью чанков; файл крупнее остатка бюджета ждёт, пока
+    // сам станет головным. Это и есть ограничитель памяти конвейера.
+    std::uint64_t admission_budget_bytes = 0;
     // Порог (байт), при котором разобранный NDJSON-буфер файла передаётся
     // писателю, не дожидаясь конца файла — головной (самый большой) файл
     // стримится, а не копится целиком в RAM.
@@ -67,6 +71,11 @@ public:
     using RecordFn = std::function<void(const char* data, std::size_t len)>;
     // Колбэк завершения файла (телеметрия). Тоже на потоке run(), в порядке файлов.
     using FileFn = std::function<void(const FileCompletion&)>;
+    // Приёмник RowBinary-чанков (run_rowbinary): data/len — целое число строк
+    // RowBinary (ClickHouse), rows — сколько строк в чанке. Данные валидны
+    // только на время вызова; вызывается на потоке run_rowbinary(), строго
+    // в детерминированном порядке.
+    using ChunkFn = std::function<void(const char* data, std::size_t len, std::uint64_t rows)>;
 
     explicit NormalizerPipeline(Config cfg = {});
 
@@ -81,7 +90,16 @@ public:
     // дренируется) и пробрасывается вызывающему после остановки потоков.
     RunStats run(const RecordFn& on_record, const FileFn& on_file = {});
 
+    // То же, но события кодируются в ClickHouse RowBinary (см. parser.hpp,
+    // append_event_rowbinary: timestamp DateTime64(6) µs, duration UInt64,
+    // event/level/filename/file_path String, props Map(String,String)) и
+    // выдаются чанками с числом строк. Семантика ошибок — как у run().
+    RunStats run_rowbinary(const ChunkFn& on_chunk, const FileFn& on_file = {});
+
 private:
+    RunStats run_impl(bool rowbinary, const RecordFn& on_record,
+                      const ChunkFn& on_chunk, const FileFn& on_file);
+
     struct FileTask {
         std::filesystem::path path;
         std::uint64_t size = 0;

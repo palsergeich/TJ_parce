@@ -7,6 +7,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <string>
 
@@ -34,6 +35,38 @@ bool append_event(std::string& dst, const char* ev, std::size_t n,
                   const std::string& date_prefix,
                   const std::string& filename_esc,
                   const std::string& file_path_esc);
+
+// --- RowBinary (ClickHouse, --sink clickhouse) -------------------------------
+// Кодирование того же разобранного события в одну строку RowBinary для
+// INSERT ... FORMAT RowBinary; порядок колонок фиксирован схемой tj_bench.events:
+//   timestamp DateTime64(6) — Int64 LE, микросекунды с эпохи (деградированный
+//                             файл без даты в имени → 0);
+//   duration  UInt64 LE (переполнение 2^64 клампится);
+//   event, level, filename, file_path — String (varint длина + байты; level
+//                             числовой и так является десятичным текстом);
+//   props     Map(String,String) — varint числа пар + пары (ключ, значение).
+// Значения свойств — ТЕКСТ без JSON-экранирования: кавычки '' / "" развёрнуты
+// по тем же правилам §4.1/KI-10, что и NDJSON; значение без кавычек — сырой
+// токен; многострочные значения сохраняют реальные байты \r\n.
+// Семантика заголовка и условия parse_skip — общие с append_event.
+struct RowBinaryCtx {
+    std::string filename;       // сырое имя файла (БЕЗ JSON-экранирования)
+    std::string file_path;      // сырой относительный путь («два предка»)
+    std::int64_t date_us = -1;  // µs с эпохи на начало часа "20YY-MM-DDTHH:";
+                                // -1 — нет даты (timestamp события → 0)
+    std::string pairs;          // scratch: закодированные пары Map события
+    std::string val;            // scratch: байты текущего значения
+};
+
+// Инициализация даты файла из date_prefix ("20YY-MM-DDTHH:" либо "").
+// Диапазоны не проверяются (как и в NDJSON — «месяц 13 пройдёт»): результат
+// детерминирован, календарная формула продлевает переполнение в соседний период.
+void rb_init_date(RowBinaryCtx& ctx, const std::string& date_prefix);
+
+// Аналог append_event: дописывает в dst одну строку RowBinary. false — событие
+// отброшено (те же parse_skip-условия, что и у NDJSON-эмиссии).
+bool append_event_rowbinary(std::string& dst, const char* ev, std::size_t n,
+                            RowBinaryCtx& ctx);
 
 // Разрезание содержимого файла на события по маске начала строки (§2.1).
 // BOM в начале пропускается (KI-6); контент до первой строки-маски

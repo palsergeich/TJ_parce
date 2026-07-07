@@ -1,20 +1,30 @@
-// pipeline.cpp — NormalizerPipeline: mmap входа, окно допуска, потоки-разборщики
-// и упорядоченная выдача записей (детерминизм при любом workers — v1.1 §5).
+// pipeline.cpp — NormalizerPipeline: оконный mmap входа, БАЙТОВЫЙ бюджет
+// допуска и упорядоченная выдача записей (детерминизм при любом workers —
+// v1.1 §5).
 //
-// Архитектура (по образцу Go-агента agents/go, прошедшего golden-гейт):
-//   - файлы сортируются по убыванию размера (stable — при равенстве порядок обхода);
-//   - воркеры берут файлы строго по возрастанию индекса, но не дальше
-//     files_written + window («окно допуска»): максимум ~2×workers файлов
-//     находятся в состоянии «разобран, но не записан» — память ограничена;
-//   - разобранный NDJSON копится в чанках по chunk_bytes и передаётся писателю
-//     (поток, вызвавший run()) через слот файла: головной 5.7-ГБ файл стримится,
-//     а не держится целиком в RAM;
-//   - писатель выдаёт записи файла i только после файла i-1 → порядок стабилен.
+// Модель памяти — байтовый бюджет допуска (выровнена с agents/go и
+// agents/rust; прежнее окно «2×workers файлов» буферизовало целиком вывод
+// любого неголовного файла — на стрессе 6+2 ГБ это давало peak RSS 2.4 ГБ
+// против 52/71 МБ у Go/Rust):
+//   - файлы сортируются по убыванию размера (stable — при равенстве порядок
+//     обхода); воркеры берут их строго по возрастанию индекса;
+//   - ГОЛОВНОЙ файл (i == files_written — его очередь писаться) допускается
+//     БЕЗУСЛОВНО и СТРИМИТСЯ: писатель забирает чанки по мере готовности,
+//     очередь чанков головы ограничена kHeadMaxChunks — вывод головы не
+//     копится даже при медленном приёмнике;
+//   - НЕголовной файл допускается, только если его размер помещается в
+//     остаток бюджета max(64 МБ × workers, 256 МБ); размер списывается при
+//     допуске и возвращается писателем после выдачи файла — на ЛЮБОМ пути,
+//     включая ошибки разбора (done ставится всегда) и ошибки приёмника
+//     (писатель продолжает дренировать все файлы);
+//   - файл крупнее остатка бюджета ждёт, пока сам станет головой, и тогда
+//     стримится без буферизации.
 //
-// Дедлок невозможен: писатель всегда ждёт файл, который уже допущен окном
-// (i < files_written + window), а воркеры разбирают допущенные файлы без
-// блокировок на выдаче (чанки не ограничены по числу — их объём ограничен
-// самим окном допуска).
+// Дедлок невозможен: допуск головы НИКОГДА не блокируется на бюджете (когда
+// писатель ждёт непринятый головной файл, все предыдущие уже выданы — любой
+// освободившийся воркер берёт голову безусловно); продюсер головы ждёт только
+// при непустой очереди чанков — писатель гарантированно разгружает её и будит
+// продюсера (cv_head).
 #include <tj/normalizer.hpp>
 
 #include <algorithm>
@@ -53,6 +63,13 @@ constexpr std::uint64_t kMapGranularity = 64u << 10;
 // целиком помещаться в окно, иначе окно переезжает. 64 КБ — с запасом
 // (маске нужно ~15 байт + цифры длительности).
 constexpr std::uint64_t kMapGuard = 64u << 10;
+
+// Байтовый бюджет допуска неголовных файлов (модель agents/go, agents/rust).
+constexpr std::uint64_t kAdmissionBytesPerWorker = 64ull << 20;
+constexpr std::uint64_t kAdmissionBytesFloor = 256ull << 20;
+// Ограничение очереди чанков ГОЛОВНОГО файла (стриминг): при медленном
+// приёмнике продюсер головы притормаживает, а не копит вывод (16 × 4 МБ).
+constexpr std::size_t kHeadMaxChunks = 16;
 
 // Файл с оконным (скользящим) memory-mapping: вместо отображения целиком
 // (наследие cpp_parse — 5.7-ГБ файл давал 5.7 ГБ WorkingSet) отображаются
@@ -287,6 +304,15 @@ std::size_t NormalizerPipeline::add_dir(const fs::path& dir) {
 }
 
 RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_file) {
+    return run_impl(false, on_record, {}, on_file);
+}
+
+RunStats NormalizerPipeline::run_rowbinary(const ChunkFn& on_chunk, const FileFn& on_file) {
+    return run_impl(true, {}, on_chunk, on_file);
+}
+
+RunStats NormalizerPipeline::run_impl(bool rowbinary, const RecordFn& on_record,
+                                      const ChunkFn& on_chunk, const FileFn& on_file) {
     // Сортировка по убыванию размера; stable — при равных размерах порядок
     // обхода (совпадает с Go-агентом; эталон при равенстве не специфицирован, §5).
     std::stable_sort(files_.begin(), files_.end(),
@@ -295,28 +321,37 @@ RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_fil
     unsigned workers = cfg_.workers != 0 ? cfg_.workers : std::thread::hardware_concurrency();
     if (workers < 1) workers = 1;
     if (workers > 1024) workers = 1024;
-    std::size_t window = cfg_.admission_window != 0 ? cfg_.admission_window
-                                                    : static_cast<std::size_t>(workers) * 2;
-    if (window < 1) window = 1;
+    const std::uint64_t budget =
+        cfg_.admission_budget_bytes != 0
+            ? cfg_.admission_budget_bytes
+            : std::max<std::uint64_t>(kAdmissionBytesPerWorker * workers, kAdmissionBytesFloor);
     std::size_t chunk_bytes = cfg_.chunk_bytes != 0 ? cfg_.chunk_bytes : (4u << 20);
     std::uint64_t map_bytes = cfg_.map_bytes != 0 ? cfg_.map_bytes : (64u << 20);
     if (map_bytes < 4 * kMapGuard) map_bytes = 4 * kMapGuard; // окно ощутимо больше гварда
 
     const std::size_t n_files = files_.size();
 
-    // Слот файла: чанки готового NDJSON + флаг завершения + телеметрия.
+    // Чанк готового вывода: байты + число записей (rows нужен RowBinary-приёмнику).
+    struct Chunk {
+        std::string data;
+        std::uint64_t rows = 0;
+    };
+    // Слот файла: чанки + флаг завершения + списанный бюджет + телеметрия.
     struct FileSlot {
-        std::vector<std::string> chunks;
+        std::vector<Chunk> chunks;
         bool done = false;
+        std::uint64_t charged = 0; // байты, списанные с бюджета при допуске (0 у головы)
         FileCompletion comp;
     };
     std::vector<FileSlot> slots(n_files);
 
     std::mutex mx;
-    std::condition_variable cv_workers; // будит воркеров (окно сдвинулось / всё роздано)
+    std::condition_variable cv_workers; // будит воркеров (бюджет вернулся / голова сдвинулась)
     std::condition_variable cv_writer;  // будит писателя (появились чанки / файл готов)
+    std::condition_variable cv_head;    // будит продюсера головы (писатель разгрузил очередь)
     std::size_t next_job = 0;
-    std::size_t files_written = 0;
+    std::size_t files_written = 0;      // писатель ждёт этот индекс — «голова»
+    std::uint64_t admitted_bytes = 0;   // сумма charged допущенных неголовных файлов
 
     std::atomic<std::uint64_t> events{0}, parse_skips{0}, failed_files{0}, bytes{0};
 
@@ -327,10 +362,21 @@ RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_fil
         comp.bytes = files_[i].size;
 
         std::string buf;
+        std::uint64_t buf_rows = 0;
         auto flush_chunk = [&]() {
-            std::lock_guard<std::mutex> lk(mx);
-            slot.chunks.push_back(std::move(buf));
+            std::unique_lock<std::mutex> lk(mx);
+            // Голова стримится с ограниченной очередью: писатель разгружает её
+            // на лету, продюсер не копит вывод при медленном приёмнике.
+            // Неголовной файл буферизует свой вывод свободно — его размер уже
+            // списан с бюджета допуска. files_written не убывает и не может
+            // перепрыгнуть i, пока файл не выдан целиком, поэтому предикат
+            // «перестал быть головой» невозможен — ждём только разгрузки.
+            cv_head.wait(lk, [&] {
+                return files_written != i || slot.chunks.size() < kHeadMaxChunks;
+            });
+            slot.chunks.push_back(Chunk{std::move(buf), buf_rows});
             buf = std::string();
+            buf_rows = 0;
             cv_writer.notify_all();
         };
 
@@ -346,16 +392,31 @@ RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_fil
                 bytes.fetch_add(mf.size());
                 const std::string filename = files_[i].path.filename().u8string();
                 const std::string file_path = util::rel_file_path(files_[i].path);
+
+                // Контекст эмиссии: NDJSON — экранированные filename/file_path;
+                // RowBinary — сырые + дата файла в µs.
                 std::string filename_esc, file_path_esc;
-                parse::append_escaped(filename_esc, filename.data(), filename.size());
-                parse::append_escaped(file_path_esc, file_path.data(), file_path.size());
+                parse::RowBinaryCtx rbctx;
+                if (rowbinary) {
+                    rbctx.filename = filename;
+                    rbctx.file_path = file_path;
+                    parse::rb_init_date(rbctx, files_[i].date_prefix);
+                } else {
+                    parse::append_escaped(filename_esc, filename.data(), filename.size());
+                    parse::append_escaped(file_path_esc, file_path.data(), file_path.size());
+                }
 
                 buf.reserve(chunk_bytes + (64u << 10));
                 bool complete = scan_file_windowed(
                     mf, map_bytes, [&](const char* ev, std::size_t len) {
-                        if (parse::append_event(buf, ev, len, files_[i].date_prefix,
-                                                filename_esc, file_path_esc)) {
+                        bool ok = rowbinary
+                                      ? parse::append_event_rowbinary(buf, ev, len, rbctx)
+                                      : parse::append_event(buf, ev, len,
+                                                            files_[i].date_prefix,
+                                                            filename_esc, file_path_esc);
+                        if (ok) {
                             ++comp.events;
+                            ++buf_rows;
                         } else {
                             ++comp.parse_skips;
                         }
@@ -389,17 +450,19 @@ RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_fil
         }
 
         // Финализация слота: остаток буфера + done — атомарно, писатель после
-        // done со свопом чанков гарантированно видит всё.
+        // done со свопом чанков гарантированно видит всё. Без ожидания очереди
+        // головы (один чанк сверх лимита не ломает модель, зато ошибочные пути
+        // не блокируются).
         {
             std::lock_guard<std::mutex> lk(mx);
-            if (!buf.empty()) slot.chunks.push_back(std::move(buf));
+            if (!buf.empty()) slot.chunks.push_back(Chunk{std::move(buf), buf_rows});
             slot.comp = std::move(comp);
             slot.done = true;
             cv_writer.notify_all();
         }
     };
 
-    // Воркеры: берут файлы строго по возрастанию индекса в пределах окна допуска.
+    // Воркеры: берут файлы строго по возрастанию индекса; голова — вне бюджета.
     std::vector<std::thread> pool;
     pool.reserve(workers);
     for (unsigned w = 0; w < workers; ++w) {
@@ -409,11 +472,20 @@ RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_fil
                 {
                     std::unique_lock<std::mutex> lk(mx);
                     cv_workers.wait(lk, [&] {
-                        return next_job >= n_files || next_job < files_written + window;
+                        if (next_job >= n_files) return true;
+                        if (next_job == files_written) return true; // голова — безусловно
+                        // admitted_bytes ≤ budget всегда (списываем только влезающее)
+                        return files_[next_job].size <= budget - admitted_bytes;
                     });
                     if (next_job >= n_files) break;
                     i = next_job++;
-                    if (next_job >= n_files) cv_workers.notify_all(); // отпустить остальных
+                    if (i != files_written) {
+                        admitted_bytes += files_[i].size;
+                        slots[i].charged = files_[i].size;
+                    }
+                    // Допуск сдвинул next_job — соседи переоценивают предикат
+                    // (следующий кандидат мог влезть в бюджет или стать головой).
+                    cv_workers.notify_all();
                 }
                 // Страховка: исключение, ускользнувшее из process_file (bad_alloc
                 // на путях вне его try, бросивший cfg_.on_error в catch-ветке),
@@ -439,32 +511,45 @@ RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_fil
     for (std::size_t i = 0; i < n_files; ++i) {
         bool done = false;
         while (!done) {
-            std::vector<std::string> got;
+            std::vector<Chunk> got;
             {
                 std::unique_lock<std::mutex> lk(mx);
                 cv_writer.wait(lk, [&] { return slots[i].done || !slots[i].chunks.empty(); });
                 got.swap(slots[i].chunks);
                 done = slots[i].done;
             }
-            if (!sink_error && on_record) {
+            cv_head.notify_all(); // очередь головы разгружена — продюсер может продолжать
+            if (!sink_error) {
                 try {
-                    for (const std::string& chunk : got) {
-                        // Чанк — целые записи, каждая с завершающим '\n';
-                        // выдаём по одной без '\n'.
-                        const char* p = chunk.data();
-                        const char* end = p + chunk.size();
-                        while (p < end) {
-                            const char* nl = static_cast<const char*>(
-                                std::memchr(p, '\n', static_cast<std::size_t>(end - p)));
-                            if (!nl) nl = end; // не бывает: запись всегда терминирована
-                            on_record(p, static_cast<std::size_t>(nl - p));
-                            p = nl + 1;
+                    if (rowbinary) {
+                        if (on_chunk) {
+                            for (const Chunk& c : got) {
+                                if (!c.data.empty()) {
+                                    on_chunk(c.data.data(), c.data.size(), c.rows);
+                                }
+                            }
+                        }
+                    } else if (on_record) {
+                        for (const Chunk& c : got) {
+                            // Чанк — целые записи, каждая с завершающим '\n';
+                            // выдаём по одной без '\n'.
+                            const char* p = c.data.data();
+                            const char* end = p + c.data.size();
+                            while (p < end) {
+                                const char* nl = static_cast<const char*>(
+                                    std::memchr(p, '\n', static_cast<std::size_t>(end - p)));
+                                if (!nl) nl = end; // не бывает: запись всегда терминирована
+                                on_record(p, static_cast<std::size_t>(nl - p));
+                                p = nl + 1;
+                            }
                         }
                     }
                 } catch (...) {
                     sink_error = std::current_exception(); // дальше только дренируем
                 }
             }
+            // got освобождается ЗДЕСЬ (до возврата бюджета): память чанков
+            // реально свободна к моменту, когда допуск разрешит новые файлы.
         }
         if (!sink_error && on_file) {
             try {
@@ -473,13 +558,14 @@ RunStats NormalizerPipeline::run(const RecordFn& on_record, const FileFn& on_fil
                 sink_error = std::current_exception();
             }
         }
-        slots[i].chunks.clear();
-        slots[i].chunks.shrink_to_fit();
         {
             std::lock_guard<std::mutex> lk(mx);
-            ++files_written; // окно допуска сдвинулось
+            admitted_bytes -= slots[i].charged; // возврат бюджета — на любом пути
+            slots[i].charged = 0;
+            ++files_written; // голова сдвинулась
         }
         cv_workers.notify_all();
+        cv_head.notify_all(); // новая голова могла ждать в flush_chunk с полной очередью
     }
 
     for (std::thread& t : pool) t.join();

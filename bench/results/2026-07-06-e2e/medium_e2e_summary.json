@@ -1,0 +1,29 @@
+﻿[
+    {
+        "contender":  "cpp",
+        "spread_pct":  3,
+        "valid":  "да",
+        "mbps":  158,
+        "median_s":  35.134,
+        "krows_s":  246,
+        "rss_mb_max":  750
+    },
+    {
+        "contender":  "rust",
+        "spread_pct":  2.5,
+        "valid":  "да",
+        "mbps":  145,
+        "median_s":  38.296,
+        "krows_s":  226,
+        "rss_mb_max":  542
+    },
+    {
+        "contender":  "go",
+        "spread_pct":  9.1,
+        "valid":  "да",
+        "mbps":  112,
+        "median_s":  49.237,
+        "krows_s":  176,
+        "rss_mb_max":  1037
+    }
+]

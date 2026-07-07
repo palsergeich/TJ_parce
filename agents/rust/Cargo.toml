@@ -3,7 +3,9 @@ name = "tj-agent-rs"
 version = "0.1.0"
 edition = "2021"
 
-# Только std — по условиям bake-off внешние крейты запрещены (паритет с Go-агентом).
+# Только std — внешних крейтов нет. ClickHouse-синк тоже на std: свой
+# HTTP/1.1 + RowBinary (тот же протокол, что у официального крейта
+# `clickhouse`) — обоснование в src/chsink.rs и README.
 [dependencies]
 
 # Релизный профиль по docs/bakeoff-protocol.md §2.1
