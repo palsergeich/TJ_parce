@@ -18,6 +18,7 @@
 //! 2 — часть входных файлов не удалось прочитать (KI-12).
 
 mod parser;
+mod scanner;
 mod walker;
 
 use std::fs;
@@ -25,11 +26,17 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, MAIN_SEPARATOR};
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Condvar, Mutex};
 use std::thread;
 use std::time::Instant;
 
 use walker::{find_log_files, FileMeta};
+
+/// Порог сброса готового NDJSON писателю (паритет с core chunk_bytes).
+const FLUSH_BYTES: usize = 4 << 20;
+/// Байтовый бюджет допуска на воркера; итог = max(64 МБ × workers, 256 МБ).
+const BUDGET_PER_WORKER: u64 = 64 << 20;
+const BUDGET_FLOOR: u64 = 256 << 20;
 
 /// Счётчики статистики, разделяемые между потоками.
 #[derive(Default)]
@@ -118,71 +125,127 @@ fn run(args: &[String]) -> i32 {
     // Параллельный разбор по файлам, запись строго в порядке files
     // (детерминизм не зависит от workers — требование v1.1 формата, §5).
     //
-    // Окно допуска (bounded admission window, паттерн Go-агента) ограничивает
-    // число файлов «разобран, но ещё не записан»: без него, пока writer ждёт
-    // медленный головной файл (сортировка по убыванию размера ставит самый
-    // большой первым), воркеры разобрали бы весь остальной корпус и их
-    // NDJSON-буферы копились бы в памяти без ограничения (на корпусе 175 ГБ —
-    // гарантированный OOM). Допуск строго в порядке files, поэтому дедлок
-    // невозможен: writer всегда ждёт файл, который уже допущен и обрабатывается.
-    let window = cfg.workers * 2; // ≥ workers, иначе простой; ×2 — запас на перекрытие записи
-    let (admit_tx, admit_rx) = mpsc::sync_channel::<()>(window);
-    let (job_tx, job_rx) = mpsc::channel::<(usize, mpsc::SyncSender<Vec<u8>>)>();
-    let mut res_txs: Vec<mpsc::SyncSender<Vec<u8>>> = Vec::with_capacity(files.len());
-    let mut res_rxs: Vec<mpsc::Receiver<Vec<u8>>> = Vec::with_capacity(files.len());
-    for _ in &files {
-        let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(1);
-        res_txs.push(tx);
-        res_rxs.push(rx);
+    // Архитектура памяти — зеркало core/src/pipeline.cpp:
+    //   - воркеры берут файлы строго по возрастанию индекса; готовый NDJSON
+    //     копится кусками ≤ FLUSH_BYTES в слоте файла;
+    //   - ГОЛОВНОЙ файл (i == files_written — его очередь писаться) допускается
+    //     безусловно и СТРИМИТСЯ: writer забирает куски по мере готовности,
+    //     целиком вывод в RAM не живёт;
+    //   - НЕголовные файлы допускаются по байтовому бюджету: сумма размеров
+    //     допущенных-но-не-записанных ≤ max(64 МБ × workers, 256 МБ). Файл
+    //     крупнее остатка бюджета ждёт, пока не станет головным (и тогда
+    //     стримится без буферизации);
+    //   - writer выдаёт куски файла i только после файла i-1 → порядок стабилен,
+    //     вывод байт-идентичен при любом --threads.
+    //
+    // Дедлок невозможен: допуск головного файла НЕ зависит от бюджета, а когда
+    // writer ждёт непринятый головной файл, все предыдущие уже записаны — есть
+    // свободный воркер, который его возьмёт.
+    let n_files = files.len();
+    let budget = (BUDGET_PER_WORKER * cfg.workers as u64).max(BUDGET_FLOOR);
+
+    #[derive(Default)]
+    struct Slot {
+        chunks: Vec<Vec<u8>>, // готовые куски NDJSON (целые записи с '\n')
+        done: bool,
+        charged: u64, // списано с бюджета при допуске (0 у головного)
     }
-    // mpsc — single-consumer; общий Receiver превращаем в MPMC через Mutex
-    let job_rx = Arc::new(Mutex::new(job_rx));
+    struct PipeState {
+        slots: Vec<Slot>,
+        next_job: usize,       // следующий невыданный файл
+        files_written: usize,  // писатель ждёт этот индекс (головной)
+        admitted_bytes: u64,   // сумма charged допущенных неголовных файлов
+    }
+    let state = Mutex::new(PipeState {
+        slots: (0..n_files).map(|_| Slot::default()).collect(),
+        next_job: 0,
+        files_written: 0,
+        admitted_bytes: 0,
+    });
+    let cv_workers = Condvar::new(); // будит воркеров (сдвиг головы / возврат бюджета)
+    let cv_writer = Condvar::new(); // будит писателя (кусок готов / файл завершён)
 
     let mut writer_failed = false;
     thread::scope(|s| {
-        // Диспетчер: место в окне занимает перед выдачей задания,
-        // освобождает его writer после записи буфера
-        s.spawn(move || {
-            for (i, tx) in res_txs.into_iter().enumerate() {
-                if admit_tx.send(()).is_err() || job_tx.send((i, tx)).is_err() {
-                    break;
-                }
-            }
-            // job_tx дропается здесь → воркеры получают Err и завершаются
-        });
-
         for _ in 0..cfg.workers {
-            let job_rx = Arc::clone(&job_rx);
+            let (state, cv_workers, cv_writer) = (&state, &cv_workers, &cv_writer);
             let stats = &stats;
             let files = &files;
-            s.spawn(move || loop {
-                // Блокирующий recv под мьютексом безопасен: writer и диспетчер
-                // этот мьютекс не берут, а заданий без допуска всё равно нет
-                let job = job_rx.lock().unwrap().recv();
-                match job {
-                    Ok((i, tx)) => {
-                        let buf = process_file(&files[i], stats);
-                        // Err = writer уже упал и дропнул приёмник — буфер не нужен
-                        let _ = tx.send(buf);
-                    }
-                    Err(_) => break,
+            s.spawn(move || {
+                let mut read_buf: Vec<u8> = Vec::new(); // переиспользуется между файлами
+                loop {
+                    let job = {
+                        let mut st = state.lock().unwrap();
+                        loop {
+                            if st.next_job >= n_files {
+                                break None;
+                            }
+                            let j = st.next_job;
+                            let is_head = j == st.files_written;
+                            if is_head || st.admitted_bytes + files[j].size <= budget {
+                                st.next_job = j + 1;
+                                if !is_head {
+                                    st.admitted_bytes += files[j].size;
+                                    st.slots[j].charged = files[j].size;
+                                }
+                                break Some(j);
+                            }
+                            st = cv_workers.wait(st).unwrap();
+                        }
+                    };
+                    let Some(i) = job else { break };
+                    // Допуск изменил next_job/бюджет — соседи переоценивают предикат
+                    cv_workers.notify_all();
+
+                    process_file(&files[i], stats, &mut read_buf, |chunk| {
+                        state.lock().unwrap().slots[i].chunks.push(chunk);
+                        cv_writer.notify_all();
+                    });
+
+                    state.lock().unwrap().slots[i].done = true;
+                    cv_writer.notify_all();
                 }
             });
         }
 
-        // Writer — текущий поток: строго в порядке files
-        for rx in &res_rxs {
-            let buf = rx.recv().unwrap_or_default();
-            if let Some(w) = out.as_mut() {
-                if !writer_failed {
-                    if let Err(e) = w.write_all(&buf) {
-                        eprintln!("Ошибка записи в файл (диск полон?): {}: {}", cfg.output, e);
-                        writer_failed = true;
+        // Writer — текущий поток: строго в порядке files, кусками
+        for i in 0..n_files {
+            loop {
+                let (got, done) = {
+                    let mut st = state.lock().unwrap();
+                    loop {
+                        if st.slots[i].done || !st.slots[i].chunks.is_empty() {
+                            break (std::mem::take(&mut st.slots[i].chunks), st.slots[i].done);
+                        }
+                        st = cv_writer.wait(st).unwrap();
+                    }
+                };
+                if let Some(w) = out.as_mut() {
+                    if !writer_failed {
+                        for chunk in &got {
+                            if let Err(e) = w.write_all(chunk) {
+                                eprintln!(
+                                    "Ошибка записи в файл (диск полон?): {}: {}",
+                                    cfg.output, e
+                                );
+                                writer_failed = true;
+                                break;
+                            }
+                        }
                     }
                 }
+                drop(got); // куски освобождаются ДО возврата бюджета
+                if done {
+                    break;
+                }
             }
-            drop(buf); // буфер освобождается ДО освобождения места в окне
-            let _ = admit_rx.recv();
+            {
+                let mut st = state.lock().unwrap();
+                let charged = std::mem::take(&mut st.slots[i].charged);
+                st.admitted_bytes -= charged;
+                st.files_written = i + 1; // голова сдвинулась
+            }
+            cv_workers.notify_all();
         }
     });
 
@@ -343,19 +406,18 @@ fn parse_flag_args(args: &[String], mut cfg: Config) -> Option<Config> {
     Some(cfg)
 }
 
-/// Читает файл целиком и возвращает готовый NDJSON-буфер его событий.
-/// Чтение целиком — осознанный паритет с Go-агентом; общий объём памяти
-/// ограничен окном допуска (window × максимальный файл).
-fn process_file(fm: &FileMeta, s: &Stats) -> Vec<u8> {
-    let data = match fs::read(&fm.path) {
-        Ok(data) => data,
+/// Разбирает файл потоково: чтение кусками через `scanner::scan_events`
+/// (файл целиком в RAM не живёт), готовый NDJSON сбрасывается в `flush`
+/// порциями ≈ FLUSH_BYTES. `read_buf` — переиспользуемый буфер чтения воркера.
+fn process_file(fm: &FileMeta, s: &Stats, read_buf: &mut Vec<u8>, mut flush: impl FnMut(Vec<u8>)) {
+    let mut f = match File::open(&fm.path) {
+        Ok(f) => f,
         Err(e) => {
             s.failed.fetch_add(1, Relaxed);
             eprintln!("Ошибка открытия файла: {}: {}", fm.path.display(), e);
-            return Vec::new();
+            return;
         }
     };
-    s.bytes.fetch_add(data.len() as u64, Relaxed);
 
     let filename = fm
         .path
@@ -368,19 +430,36 @@ fn process_file(fm: &FileMeta, s: &Stats) -> Vec<u8> {
     let mut file_path_esc = Vec::new();
     parser::append_escaped(&mut file_path_esc, file_path.as_bytes());
 
-    let mut buf = Vec::with_capacity(data.len() + data.len() / 4 + 4096);
+    let mut out = Vec::with_capacity(FLUSH_BYTES + (64 << 10));
     let mut events = 0u64;
     let mut skips = 0u64;
-    parser::split_events(&data, |ev| {
-        if parser::append_event(&mut buf, ev, &fm.date_prefix, &filename_esc, &file_path_esc) {
+    let res = scanner::scan_events(&mut f, read_buf, |ev| {
+        if parser::append_event(&mut out, ev, &fm.date_prefix, &filename_esc, &file_path_esc) {
             events += 1;
         } else {
             skips += 1;
         }
+        if out.len() >= FLUSH_BYTES {
+            let full = std::mem::replace(&mut out, Vec::with_capacity(FLUSH_BYTES + (64 << 10)));
+            flush(full);
+        }
     });
+    match res {
+        Ok(total) => {
+            s.bytes.fetch_add(total, Relaxed);
+        }
+        Err(e) => {
+            // Ошибка чтения посреди файла: уже выданные события остаются
+            // (паритет с core), файл считается ошибочным (KI-12, exit 2)
+            s.failed.fetch_add(1, Relaxed);
+            eprintln!("Ошибка чтения файла: {}: {}", fm.path.display(), e);
+        }
+    }
+    if !out.is_empty() {
+        flush(out);
+    }
     s.events.fetch_add(events, Relaxed);
     s.parse_skips.fetch_add(skips, Relaxed);
-    buf
 }
 
 /// «Ровно два уровня предков» фактического пути (format-spec §3):
@@ -433,43 +512,6 @@ fn cpp_join(p: &str, x: &str) -> String {
     format!("{p}{MAIN_SEPARATOR}{x}")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rel_path_two_ancestors() {
-        let s = MAIN_SEPARATOR;
-        assert_eq!(
-            rel_file_path(Path::new(&format!("E:{s}logs{s}Mem{s}rphost_1{s}25113021.log"))),
-            format!("Mem{s}rphost_1{s}25113021.log")
-        );
-    }
-
-    #[test]
-    fn rel_path_dotdot_ancestor_preserved() {
-        // Вход `..` (cwd внутри коллекции): C++ (fs::path::filename) и Go
-        // (filepath.Base) оба дают компонент ".." — Rust обязан совпасть
-        let s = MAIN_SEPARATOR;
-        assert_eq!(
-            rel_file_path(Path::new(&format!("..{s}inner{s}25113021.log"))),
-            format!("..{s}inner{s}25113021.log")
-        );
-    }
-
-    #[test]
-    fn rel_path_missing_ancestors() {
-        let s = MAIN_SEPARATOR;
-        // Один предок: пустой grandparent не даёт ведущего разделителя
-        assert_eq!(
-            rel_file_path(Path::new(&format!("inner{s}25113021.log"))),
-            format!("inner{s}25113021.log")
-        );
-        // Без предков (файл в cwd)
-        assert_eq!(rel_file_path(Path::new("25113021.log")), "25113021.log");
-    }
-}
-
 fn report_stats(cfg: &Config, s: &Stats, n_files: usize, sec: f64) {
     let mb = s.bytes.load(Relaxed) as f64 / (1024.0 * 1024.0);
     let speed = if sec > 0.0 { mb / sec } else { 0.0 };
@@ -513,5 +555,42 @@ fn write_stats_json(cfg: &Config, s: &Stats, n_files: usize) {
     );
     if let Err(e) = fs::write(&cfg.stats_json, json) {
         eprintln!("Ошибка записи --stats-json {}: {}", cfg.stats_json, e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rel_path_two_ancestors() {
+        let s = MAIN_SEPARATOR;
+        assert_eq!(
+            rel_file_path(Path::new(&format!("E:{s}logs{s}Mem{s}rphost_1{s}25113021.log"))),
+            format!("Mem{s}rphost_1{s}25113021.log")
+        );
+    }
+
+    #[test]
+    fn rel_path_dotdot_ancestor_preserved() {
+        // Вход `..` (cwd внутри коллекции): C++ (fs::path::filename) и Go
+        // (filepath.Base) оба дают компонент ".." — Rust обязан совпасть
+        let s = MAIN_SEPARATOR;
+        assert_eq!(
+            rel_file_path(Path::new(&format!("..{s}inner{s}25113021.log"))),
+            format!("..{s}inner{s}25113021.log")
+        );
+    }
+
+    #[test]
+    fn rel_path_missing_ancestors() {
+        let s = MAIN_SEPARATOR;
+        // Один предок: пустой grandparent не даёт ведущего разделителя
+        assert_eq!(
+            rel_file_path(Path::new(&format!("inner{s}25113021.log"))),
+            format!("inner{s}25113021.log")
+        );
+        // Без предков (файл в cwd)
+        assert_eq!(rel_file_path(Path::new("25113021.log")), "25113021.log");
     }
 }

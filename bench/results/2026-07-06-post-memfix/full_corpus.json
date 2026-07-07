@@ -1,0 +1,26 @@
+﻿[
+    {
+        "contender":  "rust",
+        "wall_s":  210.152,
+        "gbps":  0.77,
+        "rss_mb":  1026,
+        "events":  121485348,
+        "exit":  0
+    },
+    {
+        "contender":  "cpp",
+        "wall_s":  75.306,
+        "gbps":  2.16,
+        "rss_mb":  32085,
+        "events":  121485348,
+        "exit":  0
+    },
+    {
+        "contender":  "go",
+        "wall_s":  157.039,
+        "gbps":  1.04,
+        "rss_mb":  1866.5,
+        "events":  121485348,
+        "exit":  0
+    }
+]

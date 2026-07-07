@@ -36,6 +36,13 @@ import (
 	"tjagent/internal/parser"
 )
 
+// Параметры конвейера (модель байтового допуска — см. комментарий в run()).
+const (
+	outChunkBytes           = 4 << 20   // NDJSON-чанк, передаваемый писателю
+	admissionBytesPerWorker = 64 << 20  // бюджет допуска не-головных файлов, на воркера
+	admissionBytesFloor     = 256 << 20 // нижняя граница бюджета
+)
+
 type config struct {
 	input     string
 	workers   int
@@ -115,51 +122,113 @@ func run(args []string) int {
 	// Параллельный разбор по файлам, запись строго в порядке files
 	// (детерминизм не зависит от workers — требование v1.1 формата, §5).
 	//
-	// Окно допуска ограничивает число файлов «разобран, но ещё не записан»:
-	// без него, пока writer ждёт медленный головной файл (сортировка по
-	// убыванию размера ставит самый большой первым), воркеры разбирали бы
-	// весь остальной корпус и их NDJSON-буферы копились бы в памяти без
-	// ограничения (на корпусе 175 ГБ — гарантированный OOM). Допуск строго
-	// в порядке files, поэтому дедлок невозможен: writer всегда ждёт файл,
-	// который уже допущен и обрабатывается.
-	bufs := make([][]byte, len(files))
-	done := make([]chan struct{}, len(files))
-	for i := range done {
-		done[i] = make(chan struct{})
+	// Память ограничена байтовым бюджетом допуска (зеркало core/src/pipeline.cpp,
+	// но допуск считается в БАЙТАХ, а не в числе файлов):
+	//   - вход читается чанками (parser.ScanEvents) — файл никогда не лежит
+	//     в памяти целиком, резидентность O(чанк + максимальное событие);
+	//   - головной файл (i == filesWritten, чья очередь писаться) допускается
+	//     без бюджета: его NDJSON-чанки писатель забирает из канала на лету,
+	//     вывод не копится (стриминг);
+	//   - остальные допускаются, только если их размер помещается в остаток
+	//     бюджета 64 МБ × workers (минимум 256 МБ) — их вывод буферизуется
+	//     в канале слота до своей очереди. Файл больше остатка ждёт, пока сам
+	//     станет головой, и тогда стримится без буферизации.
+	// Дедлок невозможен: допуск строго по возрастанию индекса, писатель всегда
+	// ждёт файл, который либо уже допущен и разбирается, либо станет головой
+	// и будет допущен без бюджета.
+	budget := int64(cfg.workers) * admissionBytesPerWorker
+	if budget < admissionBytesFloor {
+		budget = admissionBytesFloor
 	}
-	window := cfg.workers * 2 // ≥ workers, иначе простой; ×2 — запас на перекрытие записи
-	admit := make(chan struct{}, window)
-	jobs := make(chan int)
-	go func() {
-		for i := range files {
-			admit <- struct{}{} // место в окне освобождает writer после записи
-			jobs <- i
+
+	slots := make([]chan []byte, len(files))
+	for i, fm := range files {
+		// Голове хватает короткого канала — писатель разгружает его на лету.
+		// Файлу, допустимому вне головы, даём вместимость на весь его вывод
+		// (оценка сверху ×8 на вырожденно коротких событиях; сами заголовки
+		// канала — машинные слова, не мегабайты), чтобы воркер не блокировался.
+		c := 16
+		if fm.size <= budget {
+			c = int(fm.size/outChunkBytes)*8 + 8
+			if c > 8192 {
+				c = 8192
+			}
 		}
-		close(jobs)
-	}()
+		slots[i] = make(chan []byte, c)
+	}
+
+	var (
+		mu           sync.Mutex
+		cond         = sync.NewCond(&mu)
+		nextJob      int
+		filesWritten int
+		budgetUsed   int64
+	)
+	charged := make([]int64, len(files)) // байты, списанные с бюджета при допуске
+
+	// acquire выдаёт воркеру следующий файл строго по возрастанию индекса.
+	acquire := func() (int, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		for {
+			if nextJob >= len(files) {
+				return 0, false
+			}
+			i := nextJob
+			if i == filesWritten {
+				// Голова: стримится писателю, бюджет не тратит и не ждёт его.
+				nextJob++
+				return i, true
+			}
+			if files[i].size <= budget-budgetUsed {
+				budgetUsed += files[i].size
+				charged[i] = files[i].size
+				nextJob++
+				return i, true
+			}
+			cond.Wait() // писатель разбудит: бюджет вернулся или голова сдвинулась
+		}
+	}
+
+	// Пул выходных чанков: писатель возвращает отданные чанки, воркеры берут —
+	// без пула на скорости диска рождались бы гигабайты короткоживущего мусора.
+	chunkPool := &sync.Pool{New: func() interface{} {
+		return make([]byte, 0, outChunkBytes+(256<<10))
+	}}
+
 	var wg sync.WaitGroup
 	for w := 0; w < cfg.workers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := range jobs {
-				bufs[i] = processFile(files[i], &s)
-				close(done[i])
+			inBuf := make([]byte, 0, parser.ReadChunk+parser.GuardZone)
+			for {
+				i, ok := acquire()
+				if !ok {
+					return
+				}
+				inBuf = processFile(files[i], &s, slots[i], chunkPool, inBuf)
+				close(slots[i])
 			}
 		}()
 	}
 
 	writerFailed := false
 	for i := range files {
-		<-done[i]
-		if out != nil && !writerFailed {
-			if _, err := out.Write(bufs[i]); err != nil {
-				fmt.Fprintf(os.Stderr, "Ошибка записи в файл (диск полон?): %s: %v\n", cfg.output, err)
-				writerFailed = true
+		for chunk := range slots[i] {
+			if out != nil && !writerFailed {
+				if _, err := out.Write(chunk); err != nil {
+					fmt.Fprintf(os.Stderr, "Ошибка записи в файл (диск полон?): %s: %v\n", cfg.output, err)
+					writerFailed = true
+				}
 			}
+			chunkPool.Put(chunk[:0]) //nolint:staticcheck // срезы в пуле сознательно
 		}
-		bufs[i] = nil
-		<-admit
+		mu.Lock()
+		budgetUsed -= charged[i]
+		filesWritten++ // голова сдвинулась
+		mu.Unlock()
+		cond.Broadcast()
 	}
 	wg.Wait()
 
@@ -353,35 +422,52 @@ func findLogFiles(root string, s *stats) []fileMeta {
 	return files
 }
 
-// processFile читает файл целиком и возвращает готовый NDJSON-буфер его событий.
-func processFile(fm fileMeta, s *stats) []byte {
-	data, err := os.ReadFile(fm.path)
+// processFile читает файл чанками (parser.ScanEvents) и отправляет готовые
+// NDJSON-чанки по ~outChunkBytes в канал слота. Файл никогда не находится
+// в памяти целиком — ни входом, ни выходом. Возвращает (возможно выросший)
+// входной буфер для переиспользования воркером на следующем файле.
+func processFile(fm fileMeta, s *stats, out chan<- []byte, pool *sync.Pool, inBuf []byte) []byte {
+	f, err := os.Open(fm.path)
 	if err != nil {
 		s.failed.Add(1)
 		fmt.Fprintf(os.Stderr, "Ошибка открытия файла: %s: %v\n", fm.path, err)
-		return nil
+		return inBuf
 	}
-	s.bytes.Add(uint64(len(data)))
+	defer f.Close()
 
 	filename := filepath.Base(fm.path)
 	filePath := relFilePath(fm.path)
 	filenameEsc := parser.AppendEscaped(nil, []byte(filename))
 	filePathEsc := parser.AppendEscaped(nil, []byte(filePath))
 
-	buf := make([]byte, 0, len(data)+len(data)/4+4096)
+	outBuf := pool.Get().([]byte)[:0]
 	var events, skips uint64
-	parser.SplitEvents(data, func(ev []byte) {
+	inBuf, bytesRead, err := parser.ScanEvents(f, inBuf, func(ev []byte) {
 		var ok bool
-		buf, ok = parser.AppendEvent(buf, ev, fm.datePrefix, filenameEsc, filePathEsc)
+		outBuf, ok = parser.AppendEvent(outBuf, ev, fm.datePrefix, filenameEsc, filePathEsc)
 		if ok {
 			events++
 		} else {
 			skips++
 		}
+		if len(outBuf) >= outChunkBytes {
+			out <- outBuf
+			outBuf = pool.Get().([]byte)[:0]
+		}
 	})
+	s.bytes.Add(bytesRead)
+	if err != nil {
+		s.failed.Add(1)
+		fmt.Fprintf(os.Stderr, "Ошибка чтения файла: %s: %v\n", fm.path, err)
+	}
+	if len(outBuf) > 0 {
+		out <- outBuf
+	} else {
+		pool.Put(outBuf) //nolint:staticcheck
+	}
 	s.events.Add(events)
 	s.parseSkips.Add(skips)
-	return buf
+	return inBuf
 }
 
 // relFilePath — «ровно два уровня предков»: <коллекция>\<process_pid>\<файл>.log

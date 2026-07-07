@@ -1,0 +1,23 @@
+﻿[
+    {
+        "contender":  "cpp",
+        "wall_s":  12.687,
+        "rss_mb":  2367.6,
+        "events":  8541591,
+        "exit":  0
+    },
+    {
+        "contender":  "rust",
+        "wall_s":  10.742,
+        "rss_mb":  70.7,
+        "events":  8541591,
+        "exit":  0
+    },
+    {
+        "contender":  "go",
+        "wall_s":  9.716,
+        "rss_mb":  51.8,
+        "events":  8541591,
+        "exit":  0
+    }
+]

@@ -1,0 +1,89 @@
+﻿{
+    "go":  [
+               {
+                   "exe":  "E:\\git\\ТехЖурнал\\agents\\go\\tj-agent-go.exe",
+                   "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_go.json",
+                   "wall_s":  1.782,
+                   "cpu_s":  13.906,
+                   "cpu_pct":  48.8,
+                   "peak_rss_mb":  874,
+                   "exit_code":  0
+               },
+               {
+                   "exe":  "E:\\git\\ТехЖурнал\\agents\\go\\tj-agent-go.exe",
+                   "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_go.json",
+                   "wall_s":  1.799,
+                   "cpu_s":  13.938,
+                   "cpu_pct":  48.4,
+                   "peak_rss_mb":  864.7,
+                   "exit_code":  0
+               },
+               {
+                   "exe":  "E:\\git\\ТехЖурнал\\agents\\go\\tj-agent-go.exe",
+                   "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_go.json",
+                   "wall_s":  1.807,
+                   "cpu_s":  13.875,
+                   "cpu_pct":  48,
+                   "peak_rss_mb":  905.1,
+                   "exit_code":  0
+               }
+           ],
+    "rust":  [
+                 {
+                     "exe":  "E:\\git\\ТехЖурнал\\agents\\rust\\target\\release\\tj-agent-rs.exe",
+                     "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_rust.json",
+                     "wall_s":  2.418,
+                     "cpu_s":  19.469,
+                     "cpu_pct":  50.3,
+                     "peak_rss_mb":  656.4,
+                     "exit_code":  0
+                 },
+                 {
+                     "exe":  "E:\\git\\ТехЖурнал\\agents\\rust\\target\\release\\tj-agent-rs.exe",
+                     "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_rust.json",
+                     "wall_s":  2.456,
+                     "cpu_s":  19.859,
+                     "cpu_pct":  50.5,
+                     "peak_rss_mb":  682,
+                     "exit_code":  0
+                 },
+                 {
+                     "exe":  "E:\\git\\ТехЖурнал\\agents\\rust\\target\\release\\tj-agent-rs.exe",
+                     "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_rust.json",
+                     "wall_s":  2.399,
+                     "cpu_s":  19.391,
+                     "cpu_pct":  50.5,
+                     "peak_rss_mb":  627.3,
+                     "exit_code":  0
+                 }
+             ],
+    "cpp":  [
+                {
+                    "exe":  "E:\\git\\ТехЖурнал\\core\\build\\Release\\tj-agent-cpp.exe",
+                    "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_cpp.json",
+                    "wall_s":  1.897,
+                    "cpu_s":  14.984,
+                    "cpu_pct":  49.4,
+                    "peak_rss_mb":  520.4,
+                    "exit_code":  0
+                },
+                {
+                    "exe":  "E:\\git\\ТехЖурнал\\core\\build\\Release\\tj-agent-cpp.exe",
+                    "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_cpp.json",
+                    "wall_s":  1.84,
+                    "cpu_s":  14.438,
+                    "cpu_pct":  49,
+                    "peak_rss_mb":  538.5,
+                    "exit_code":  0
+                },
+                {
+                    "exe":  "E:\\git\\ТехЖурнал\\core\\build\\Release\\tj-agent-cpp.exe",
+                    "args":  "--input E:\\bench\\corpus-medium --threads 8 --sink null --stats-json C:\\Users\\Pavel\\AppData\\Local\\Temp\\stats_cpp.json",
+                    "wall_s":  1.837,
+                    "cpu_s":  14.578,
+                    "cpu_pct":  49.6,
+                    "peak_rss_mb":  483.5,
+                    "exit_code":  0
+                }
+            ]
+}

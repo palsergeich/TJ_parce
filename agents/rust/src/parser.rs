@@ -164,6 +164,10 @@ pub fn append_escaped(dst: &mut Vec<u8>, s: &[u8]) {
 /// Контент до первой строки-маски отбрасывается. Чётность кавычек НЕ
 /// проверяется — KI-1 воспроизводится сознательно (golden-кейс
 /// mask_inside_quotes остаётся XFAIL до починки в core).
+///
+/// В продакшн-пути заменён потоковым `scanner::scan_events` (файл целиком в
+/// RAM не читается); остаётся эталонным оракулом для тестов сканера.
+#[cfg(test)]
 pub fn split_events(mut data: &[u8], mut emit: impl FnMut(&[u8])) {
     if data.len() >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF {
         data = &data[3..];
