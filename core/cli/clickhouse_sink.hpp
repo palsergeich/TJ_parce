@@ -50,6 +50,14 @@ public:
     // Финальный флаш остатка. Бросает при ошибке вставки.
     void finish();
 
+    // Для tail-режима (--follow): немедленный флаш накопленного батча.
+    // При ошибке БРОСАЕТ, батч сохраняется (post не очищает буфер до успеха) —
+    // вызывающий ретраит с бэкоффом; успешный HTTP 200 и есть ack батча.
+    void flush_pending() { flush(); }
+    // Неподтверждённый остаток (строк/байт в накопленном батче).
+    std::uint64_t pending_rows() const { return batch_rows_; }
+    std::size_t pending_bytes() const { return batch_.size(); }
+
     std::uint64_t inserted_rows() const { return inserted_; }
 
 private:

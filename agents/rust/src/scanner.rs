@@ -23,8 +23,9 @@ const GUARD_BYTES: usize = 64 << 10;
 
 /// Поиск '\n' по 8 байт за шаг (SWAR, только std): ~память-bound вместо
 /// побайтового сравнения — это самый горячий цикл нормализатора.
+/// Используется и batch-сканером, и хвостовым ассемблером follow-режима.
 #[inline]
-fn find_nl(hay: &[u8]) -> Option<usize> {
+pub(crate) fn find_nl(hay: &[u8]) -> Option<usize> {
     const LO: u64 = 0x0101_0101_0101_0101;
     const HI: u64 = 0x8080_8080_8080_8080;
     const NL: u64 = 0x0A0A_0A0A_0A0A_0A0A;

@@ -48,7 +48,9 @@ target_include_directories(tj_core
 # --- CLI (участник bake-off; замена cpp_parse/count_contexts) ---------------
 # clickhouse_sink: RowBinary over HTTP через системный WinHTTP — внешних
 # зависимостей у --sink clickhouse нет.
-add_executable(tj-agent-cpp cli/main.cpp cli/clickhouse_sink.cpp)
+# follow: tail-режим (--follow) — оркестрация в CLI-слое поверх разбора ядра
+# (включает src/parser.hpp относительным путём; символы линкуются из tj_core).
+add_executable(tj-agent-cpp cli/main.cpp cli/clickhouse_sink.cpp cli/follow.cpp)
 target_link_libraries(tj-agent-cpp PRIVATE tj_core)
 if(WIN32)
     target_link_libraries(tj-agent-cpp PRIVATE winhttp)

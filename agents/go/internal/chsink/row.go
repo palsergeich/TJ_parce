@@ -53,6 +53,16 @@ func (it *propsIter) Next() bool { it.i++; return it.i < len(it.p) }
 func (it *propsIter) Key() any   { return it.p[it.i].Name }
 func (it *propsIter) Value() any { return it.p[it.i].Value }
 
+// Src — происхождение строки для чекпоинтов follow-режима: индекс файла в
+// реестре вызывающего, поколение файла (инкрементируется при усечении/
+// пересоздании — ack устаревшего поколения игнорируется) и абсолютный оффсет
+// файла сразу за последним байтом события. В batch-режиме — нулевое значение.
+type Src struct {
+	File uint32
+	Gen  uint32
+	End  int64
+}
+
 // Row — строка tj_bench.events (DDL — bakeoff-protocol §1.2).
 type Row struct {
 	Time     time.Time
@@ -62,6 +72,7 @@ type Row struct {
 	Filename string
 	FilePath string
 	Props    Props
+	Src      Src // метка для OnAck (только follow-режим)
 	bytes    int // оценка вклада строки в порог BatchBytes
 }
 

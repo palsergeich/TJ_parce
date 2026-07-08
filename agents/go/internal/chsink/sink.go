@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -38,7 +39,26 @@ type Config struct {
 	BatchRows  int           // порог батча по строкам (протокол: 50000)
 	BatchBytes int64         // порог батча по байтам (протокол: 64 МБ)
 	Flush      time.Duration // максимальный возраст непустого батча (протокол: 1000 мс)
+
+	// Retry — режим follow: ошибка вставки не фатальна, батч повторяется с
+	// экспоненциальным бэкоффом 1..30 с (строки батча удерживаются в памяти,
+	// вход не читается → чтение файлов backpressure'ится). После SetDraining
+	// (graceful-стоп) число дальнейших попыток ограничено, затем — фатал.
+	// false — семантика batch-режима: flush-then-fail с первой ошибки.
+	Retry bool
+	// OnAck вызывается после КАЖДОГО подтверждённого сервером батча со
+	// строками в порядке вставки (точка продвижения чекпоинтов follow).
+	// Слайс переиспользуется — удерживать за пределами вызова нельзя.
+	OnAck func(rows []Row)
 }
+
+// Параметры повторов Retry-режима.
+const (
+	retryMinBackoff   = 1 * time.Second
+	retryMaxBackoff   = 30 * time.Second
+	drainMaxBackoff   = 2 * time.Second // бэкофф после SetDraining — стоп не должен длиться минуты
+	drainMaxAttempts  = 3               // попытки после SetDraining, затем фатал (чекпоинт не сдвинут — потерь нет)
+)
 
 var tableRe = regexp.MustCompile(`^[A-Za-z_][0-9A-Za-z_]*(\.[A-Za-z_][0-9A-Za-z_]*)?$`)
 
@@ -49,12 +69,14 @@ type Sink struct {
 	insertSQL string
 	table     string
 
-	in       chan []Row
-	fatal    chan struct{} // закрыт при фатальной ошибке вставки
-	done     chan struct{} // закрыт по завершении батчера
-	failOnce sync.Once
-	err      error
-	inserted atomic.Uint64
+	in        chan []Row
+	fatal     chan struct{} // закрыт при фатальной ошибке вставки
+	done      chan struct{} // закрыт по завершении батчера
+	draining  chan struct{} // закрыт SetDraining'ом (graceful-стоп follow)
+	drainOnce sync.Once
+	failOnce  sync.Once
+	err       error
+	inserted  atomic.Uint64
 }
 
 // Open разбирает DSN, устанавливает соединение и проверяет его Ping'ом
@@ -95,8 +117,13 @@ func Open(ctx context.Context, cfg Config) (*Sink, error) {
 		in:        make(chan []Row, 32),
 		fatal:     make(chan struct{}),
 		done:      make(chan struct{}),
+		draining:  make(chan struct{}),
 	}
-	go s.run()
+	if cfg.Retry {
+		go s.runRetry()
+	} else {
+		go s.run()
+	}
 	return s, nil
 }
 
@@ -131,6 +158,23 @@ func (s *Sink) Inserted() uint64 { return s.inserted.Load() }
 
 // Table — целевая таблица (для сообщений/статистики).
 func (s *Sink) Table() string { return s.table }
+
+// SetDraining — сигнал graceful-стопа (только Retry-режим): текущие и
+// последующие повторы вставки ограничиваются drainMaxAttempts попытками,
+// после чего батчер фатально останавливается (несданные строки не
+// чекпоинтятся — при следующем запуске перечитаются, потерь нет).
+func (s *Sink) SetDraining() {
+	s.drainOnce.Do(func() { close(s.draining) })
+}
+
+func (s *Sink) isDraining() bool {
+	select {
+	case <-s.draining:
+		return true
+	default:
+		return false
+	}
+}
 
 // Finish закрывает вход (вызывать строго после остановки всех поставщиков),
 // дожидается финального flush батчера и возвращает первую фатальную ошибку.
@@ -229,4 +273,135 @@ func (s *Sink) run() {
 			}
 		}
 	}
+}
+
+// runRetry — батчер follow-режима. Отличия от run():
+//
+//   - строки батча копятся в pending и удерживаются до подтверждения: при
+//     ошибке вставки батч пересобирается с нуля (PrepareBatch+Append+Send)
+//     и повторяется с бэкоффом retryMinBackoff..retryMaxBackoff. Пока идут
+//     повторы, вход не читается — поставщики блокируются на In() (реадинг
+//     backpressure'ится), чекпоинты не двигаются, потерь нет. Повтор после
+//     сетевой ошибки, когда сервер батч всё же применил, даёт дубли —
+//     at-least-once по контракту;
+//   - после SetDraining попытки ограничены drainMaxAttempts, затем фатал
+//     (Fatal() освобождает заблокированных поставщиков);
+//   - после каждого подтверждённого батча вызывается OnAck (продвижение
+//     чекпоинтов).
+func (s *Sink) runRetry() {
+	defer close(s.done)
+
+	pending := make([]Row, 0, s.cfg.BatchRows)
+	var size int64
+	timer := time.NewTimer(time.Hour)
+	timer.Stop()
+	defer timer.Stop()
+
+	flush := func() error {
+		if len(pending) == 0 {
+			return nil
+		}
+		if err := s.sendRetry(pending); err != nil {
+			return err
+		}
+		s.inserted.Add(uint64(len(pending)))
+		if s.cfg.OnAck != nil {
+			s.cfg.OnAck(pending)
+		}
+		pending = pending[:0]
+		size = 0
+		timer.Stop()
+		return nil
+	}
+
+	abort := func(err error) {
+		s.fail(err)
+		for range s.in { // дренаж до close(in) — поставщики не блокируются
+		}
+	}
+
+	for {
+		select {
+		case slab, ok := <-s.in:
+			if !ok {
+				if err := flush(); err != nil { // финальный flush (graceful-стоп)
+					s.fail(err)
+				}
+				return
+			}
+			for i := range slab {
+				if len(pending) == 0 {
+					timer.Reset(s.cfg.Flush)
+				}
+				pending = append(pending, slab[i])
+				size += int64(slab[i].bytes)
+				if len(pending) >= s.cfg.BatchRows || size >= s.cfg.BatchBytes {
+					if err := flush(); err != nil {
+						abort(err)
+						return
+					}
+				}
+			}
+		case <-timer.C:
+			if err := flush(); err != nil {
+				abort(err)
+				return
+			}
+		}
+	}
+}
+
+// sendRetry — вставка rows с повторами. Возвращает ошибку только когда
+// повторы исчерпаны (это возможно лишь после SetDraining).
+func (s *Sink) sendRetry(rows []Row) error {
+	backoff := retryMinBackoff
+	drainTries := 0
+	for {
+		err := s.trySend(rows)
+		if err == nil {
+			return nil
+		}
+		if s.isDraining() {
+			drainTries++
+			if drainTries >= drainMaxAttempts {
+				return fmt.Errorf("вставка %d строк в %s не удалась после %d попыток на graceful-стопе: %w",
+					len(rows), s.table, drainTries, err)
+			}
+			if backoff > drainMaxBackoff {
+				backoff = drainMaxBackoff
+			}
+		}
+		fmt.Fprintf(os.Stderr, "[follow] вставка %d строк в %s: %v — повтор через %v\n",
+			len(rows), s.table, err, backoff)
+		select {
+		case <-time.After(backoff):
+		case <-s.draining:
+			// проснуться сразу: на стопе ждать полный бэкофф не нужно
+			time.Sleep(retryMinBackoff)
+		}
+		backoff *= 2
+		if backoff > retryMaxBackoff {
+			backoff = retryMaxBackoff
+		}
+	}
+}
+
+// trySend — одна попытка вставки: свежий батч, все строки, синхронный Send.
+func (s *Sink) trySend(rows []Row) error {
+	ctx := context.Background()
+	batch, err := s.conn.PrepareBatch(ctx, s.insertSQL)
+	if err != nil {
+		return fmt.Errorf("подготовка батча для %s: %w", s.table, err)
+	}
+	for i := range rows {
+		r := &rows[i]
+		if err := batch.Append(r.Time, r.Duration, r.Event, r.Level, r.Filename, r.FilePath, &r.Props); err != nil {
+			_ = batch.Abort()
+			return fmt.Errorf("добавление строки в батч %s: %w", s.table, err)
+		}
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("вставка батча (%d строк) в %s: %w", len(rows), s.table, err)
+	}
+	return nil
 }

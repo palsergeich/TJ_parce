@@ -602,6 +602,13 @@ pub fn run_sink(
 #[derive(Debug)]
 pub struct ChError(pub String);
 
+/// Ошибка вставки с флагом «имеет смысл повторить» (follow-режим).
+#[derive(Debug)]
+pub struct ChInsertError {
+    pub err: ChError,
+    pub retryable: bool,
+}
+
 impl std::fmt::Display for ChError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -690,19 +697,34 @@ impl ChClient {
     /// Вставка одного батча RowBinary. Синхронно: успех = HTTP 200 =
     /// батч закоммичен (`async_insert=0` зафиксирован протоколом bake-off).
     pub fn insert(&mut self, body: &[u8]) -> Result<(), ChError> {
+        self.insert_classified(body).map_err(|e| e.err)
+    }
+
+    /// То же, что [`ChClient::insert`], но с классификацией ошибки для
+    /// follow-ретраев: транспортные сбои (сервер мог и не получить батч,
+    /// а мог и закоммитить — at-least-once допускает повтор) и временные
+    /// статусы 5xx/408/429 — retryable; остальные HTTP-статусы (кривая
+    /// схема/данные/нет таблицы) повторять бессмысленно — фатал.
+    pub fn insert_classified(&mut self, body: &[u8]) -> Result<(), ChInsertError> {
         let head = format!(
             "POST /?query={}&async_insert=0 HTTP/1.1\r\nHost: {}\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
             self.insert_query,
             self.host,
             body.len()
         );
-        let r = self.request(&head, body)?;
+        let r = self.request(&head, body).map_err(|err| ChInsertError {
+            err,
+            retryable: true,
+        })?;
         if r.status != 200 {
-            return Err(ChError(format!(
-                "INSERT отвергнут, HTTP {}: {}",
-                r.status,
-                body_snippet(&r.body)
-            )));
+            return Err(ChInsertError {
+                err: ChError(format!(
+                    "INSERT отвергнут, HTTP {}: {}",
+                    r.status,
+                    body_snippet(&r.body)
+                )),
+                retryable: matches!(r.status, 408 | 429 | 500..=599),
+            });
         }
         Ok(())
     }

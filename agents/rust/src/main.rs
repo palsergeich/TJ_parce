@@ -19,6 +19,7 @@
 //! 2 — часть входных файлов не удалось прочитать (KI-12).
 
 mod chsink;
+mod follow;
 mod parser;
 mod scanner;
 mod walker;
@@ -26,7 +27,7 @@ mod walker;
 use std::fs;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::{Path, MAIN_SEPARATOR};
+use std::path::{Path, PathBuf, MAIN_SEPARATOR};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Condvar, Mutex};
 use std::thread;
@@ -60,6 +61,12 @@ struct Config {
     batch_bytes: usize,
     flush_ms: u64,
     stats_json: String,
+    // --follow (единый контракт tail-режима bake-off)
+    follow: bool,
+    state_dir: String,
+    stop_file: String,
+    poll_ms: u64,
+    idle_close_ms: u64,
 }
 
 fn main() {
@@ -72,7 +79,10 @@ fn usage() {
         "Использование:\n  \
          tj-agent-rs <input_dir> [workers] [output.jsonl] [--no-output]\n  \
          tj-agent-rs --input <dir> [--threads N] [--sink null|file:<path>|clickhouse[:<dsn>]]\n           \
-         [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]\n\
+         [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]\n  \
+         tj-agent-rs --follow --input <dir> --sink clickhouse[:<dsn>] --state <dir>\n           \
+         --stop-file <path> [--poll-ms 500] [--idle-close-ms 2000] [--threads N]\n           \
+         [--stats-json <path>]\n\
          DSN ClickHouse: http://host[:порт][/база[/таблица]], по умолчанию\n\
          http://localhost:8123/tj_bench/events (HTTP-порт, пользователь default)\n"
     );
@@ -97,6 +107,11 @@ fn run(args: &[String]) -> i32 {
     }
 
     let stats = Stats::default();
+
+    if cfg.follow {
+        return run_follow(&cfg, &stats);
+    }
+
     let files = find_log_files(Path::new(&cfg.input), &stats);
     if files.is_empty() {
         // Подходящих файлов нет → выходной файл НЕ создаётся, exit 0 (§6)
@@ -306,6 +321,11 @@ fn parse_args(args: &[String]) -> Option<Config> {
         batch_bytes: chsink::DEFAULT_BATCH_BYTES,
         flush_ms: chsink::DEFAULT_FLUSH_MS,
         stats_json: String::new(),
+        follow: false,
+        state_dir: String::new(),
+        stop_file: String::new(),
+        poll_ms: 500,
+        idle_close_ms: 2000,
     };
     if args.is_empty() {
         usage();
@@ -413,9 +433,37 @@ fn parse_flag_args(args: &[String], mut cfg: Config) -> Option<Config> {
                 }
                 i += 1;
             }
-            "--follow" => {
-                eprintln!("Ошибка: --follow пока не реализован (фаза 3)");
-                return None;
+            // Хвостовой режим (единый контракт bake-off, см. src/follow.rs)
+            "--follow" => cfg.follow = true,
+            "--state" => {
+                cfg.state_dir = next(i)?.clone();
+                i += 1;
+            }
+            "--stop-file" => {
+                cfg.stop_file = next(i)?.clone();
+                i += 1;
+            }
+            "--poll-ms" => {
+                match next(i)?.parse::<u64>() {
+                    Ok(v) if (1..=60_000).contains(&v) => cfg.poll_ms = v,
+                    _ => {
+                        eprintln!("Ошибка: --poll-ms должен быть целым числом от 1 до 60000");
+                        return None;
+                    }
+                }
+                i += 1;
+            }
+            "--idle-close-ms" => {
+                match next(i)?.parse::<u64>() {
+                    Ok(v) if (1..=3_600_000).contains(&v) => cfg.idle_close_ms = v,
+                    _ => {
+                        eprintln!(
+                            "Ошибка: --idle-close-ms должен быть целым числом от 1 до 3600000"
+                        );
+                        return None;
+                    }
+                }
+                i += 1;
             }
             other => {
                 eprintln!("Ошибка: неизвестный флаг {other}");
@@ -450,6 +498,23 @@ fn parse_flag_args(args: &[String], mut cfg: Config) -> Option<Config> {
         return None;
     } else {
         eprintln!("Ошибка: неизвестный sink \"{sink}\"");
+        return None;
+    }
+    if cfg.follow {
+        if cfg.clickhouse.is_none() {
+            eprintln!("Ошибка: --follow поддерживает только --sink clickhouse[:<dsn>]");
+            return None;
+        }
+        if cfg.state_dir.is_empty() {
+            eprintln!("Ошибка: --follow требует --state <dir> (каталог чекпоинтов)");
+            return None;
+        }
+        if cfg.stop_file.is_empty() {
+            eprintln!("Ошибка: --follow требует --stop-file <path>");
+            return None;
+        }
+    } else if !cfg.state_dir.is_empty() || !cfg.stop_file.is_empty() {
+        eprintln!("Ошибка: --state/--stop-file имеют смысл только с --follow");
         return None;
     }
     Some(cfg)
@@ -545,6 +610,32 @@ fn run_clickhouse(
         return 2;
     }
     0
+}
+
+/// `--follow`: хвостовой режим (единый контракт bake-off, см. src/follow.rs).
+/// stdout чист; прогресс, итог и ошибки — в stderr; `--stats-json` пишется
+/// при любом исходе. Exit 0 — остановка по `--stop-file`; 1 — фатальная
+/// ошибка синка/аргументов.
+fn run_follow(cfg: &Config, stats: &Stats) -> i32 {
+    let Some(target) = &cfg.clickhouse else {
+        // parse_flag_args это уже гарантирует; страховка
+        eprintln!("Ошибка: --follow поддерживает только --sink clickhouse");
+        return 1;
+    };
+    let opts = follow::FollowOpts {
+        input: PathBuf::from(&cfg.input),
+        state_dir: PathBuf::from(&cfg.state_dir),
+        stop_file: PathBuf::from(&cfg.stop_file),
+        poll: Duration::from_millis(cfg.poll_ms),
+        idle_close: Duration::from_millis(cfg.idle_close_ms),
+        workers: cfg.workers,
+        batch_rows: cfg.batch_rows,
+        batch_bytes: cfg.batch_bytes,
+        flush: Duration::from_millis(cfg.flush_ms),
+    };
+    let out = follow::run(&opts, target, stats);
+    write_stats_json(cfg, stats, out.files as usize, Some(out.inserted_rows));
+    out.code
 }
 
 /// Разбор одного файла в RowBinary-куски для ClickHouse-синка (аналог
@@ -671,7 +762,8 @@ fn process_file(fm: &FileMeta, s: &Stats, read_buf: &mut Vec<u8>, mut flush: imp
 /// «Ровно два уровня предков» фактического пути (format-spec §3):
 /// `<коллекция>\<process_pid>\<файл>.log`. Отсутствующий предок даёт пустую
 /// часть — композиция повторяет семантику fs::path::operator/ эталона.
-fn rel_file_path(path: &Path) -> String {
+/// Используется batch-режимом и follow-режимом (pub(crate)).
+pub(crate) fn rel_file_path(path: &Path) -> String {
     let parent = path.parent();
     let grandparent = parent.and_then(Path::parent);
     let base = path

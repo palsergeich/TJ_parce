@@ -11,6 +11,12 @@
 //                  [--batch-rows N] [--batch-bytes N] [--flush-ms N]
 //                  [--stats-json <path>]
 //
+//  3. Tail-режим (унифицированный контракт follow, см. cli/follow.cpp):
+//     tj-agent-cpp --follow --input <dir> --sink clickhouse[:<dsn>]
+//                  --state <dir> --stop-file <path>
+//                  [--poll-ms 500] [--idle-close-ms 2000] [--threads N]
+//                  [--stats-json <path>]
+//
 // --sink clickhouse: события кодируются ядром в RowBinary (без пересборки
 // JSON) и вставляются по HTTP (INSERT ... FORMAT RowBinary, WinHTTP, без
 // внешних зависимостей). URL: http://host[:port][/<db>.<table>], по умолчанию
@@ -46,6 +52,7 @@
 #include <vector>
 
 #include "clickhouse_sink.hpp"
+#include "follow.hpp"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -67,6 +74,12 @@ struct CliConfig {
     std::uint64_t batch_bytes = 64ull << 20;   // … или байт
     std::uint64_t flush_ms = 1000;             // … или мс с прошлого флаша
     std::string stats_json;
+    // --- tail-режим (--follow), унифицированный контракт ---
+    bool follow = false;
+    std::string state_dir;              // --state <dir>: чекпоинты
+    std::string stop_file;              // --stop-file <path>: грациозный стоп
+    std::uint64_t poll_ms = 500;        // --poll-ms
+    std::uint64_t idle_close_ms = 2000; // --idle-close-ms
 };
 
 void usage() {
@@ -76,6 +89,10 @@ void usage() {
                  "  tj-agent-cpp --input <dir> [--threads N] "
                  "[--sink null|file:<path>|clickhouse[:<url>]]\n"
                  "               [--batch-rows N] [--batch-bytes N] [--flush-ms N] "
+                 "[--stats-json <path>]\n"
+                 "  tj-agent-cpp --follow --input <dir> --sink clickhouse[:<url>] "
+                 "--state <dir> --stop-file <path>\n"
+                 "               [--poll-ms 500] [--idle-close-ms 2000] [--threads N] "
                  "[--stats-json <path>]\n");
 }
 
@@ -155,8 +172,25 @@ bool parse_flag_args(int argc, char** argv, CliConfig& cfg) {
             if (!v || !parse_u64(v, cfg.flush_ms, "--flush-ms")) return false;
             ++i;
         } else if (std::strcmp(a, "--follow") == 0) {
-            std::fprintf(stderr, "Ошибка: --follow пока не реализован (фаза 3)\n");
-            return false;
+            cfg.follow = true;
+        } else if (std::strcmp(a, "--state") == 0) {
+            const char* v = next(i);
+            if (!v) return false;
+            cfg.state_dir = v;
+            ++i;
+        } else if (std::strcmp(a, "--stop-file") == 0) {
+            const char* v = next(i);
+            if (!v) return false;
+            cfg.stop_file = v;
+            ++i;
+        } else if (std::strcmp(a, "--poll-ms") == 0) {
+            const char* v = next(i);
+            if (!v || !parse_u64(v, cfg.poll_ms, "--poll-ms")) return false;
+            ++i;
+        } else if (std::strcmp(a, "--idle-close-ms") == 0) {
+            const char* v = next(i);
+            if (!v || !parse_u64(v, cfg.idle_close_ms, "--idle-close-ms")) return false;
+            ++i;
         } else {
             std::fprintf(stderr, "Ошибка: неизвестный флаг %s\n", a);
             usage();
@@ -192,6 +226,23 @@ bool parse_flag_args(int argc, char** argv, CliConfig& cfg) {
     } else {
         std::fprintf(stderr, "Ошибка: неизвестный sink \"%s\"\n", sink.c_str());
         return false;
+    }
+    if (cfg.follow) {
+        // Унифицированный контракт follow: sink только clickhouse, state и
+        // stop-file обязательны (стоп-файл — единственный механизм остановки).
+        if (!cfg.clickhouse) {
+            std::fprintf(stderr,
+                         "Ошибка: --follow поддерживает только --sink clickhouse[:<url>]\n");
+            return false;
+        }
+        if (cfg.state_dir.empty()) {
+            std::fprintf(stderr, "Ошибка: --follow требует --state <dir>\n");
+            return false;
+        }
+        if (cfg.stop_file.empty()) {
+            std::fprintf(stderr, "Ошибка: --follow требует --stop-file <path>\n");
+            return false;
+        }
     }
     return true;
 }
@@ -337,6 +388,27 @@ int run(int argc, char** argv) {
         std::fprintf(stderr, "Ошибка: указанный путь не является директорией: %s\n",
                      cfg.input.c_str());
         return 1;
+    }
+
+    if (cfg.follow) {
+        // Tail-режим: свой оркестратор (cli/follow.cpp) поверх разбора ядра.
+        // --threads принимается контрактом, но follow однопоточен (см. README).
+        tj_cli::FollowConfig fcfg;
+        fcfg.input = cfg.input;
+        fcfg.state_dir = cfg.state_dir;
+        fcfg.stop_file = cfg.stop_file;
+        fcfg.poll_ms = cfg.poll_ms;
+        fcfg.idle_close_ms = cfg.idle_close_ms;
+        fcfg.stats_json = cfg.stats_json;
+        fcfg.ch.batch_rows = cfg.batch_rows;
+        fcfg.ch.batch_bytes = cfg.batch_bytes;
+        fcfg.ch.flush_ms = cfg.flush_ms;
+        std::string dsn_err;
+        if (!tj_cli::parse_clickhouse_dsn(cfg.ch_dsn, fcfg.ch, dsn_err)) {
+            std::fprintf(stderr, "Ошибка: %s\n", dsn_err.c_str());
+            return 1;
+        }
+        return tj_cli::run_follow(fcfg);
     }
 
     tj::Config pcfg;

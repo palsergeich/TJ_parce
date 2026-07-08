@@ -10,6 +10,11 @@
 //     --sink {null|file:<path>|clickhouse[:<dsn>]}
 //     [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]
 //
+//  3. Контракт bake-off (сценарий B, follow/tail-режим):
+//     tj-agent-go --follow --input <dir> --sink clickhouse[:<dsn>]
+//     --state <dir> --stop-file <path>
+//     [--poll-ms 500] [--idle-close-ms 2000] [--threads N] [--stats-json <path>]
+//
 // Формат вывода — docs/format-spec.md v1.0: NDJSON без BOM, LF-терминатор
 // каждой записи. Порядок записей внутри файла = порядок событий в файле
 // при любом числе потоков (жёстче KI-11). Файлы обрабатываются в порядке
@@ -36,6 +41,7 @@ import (
 	"time"
 
 	"tjagent/internal/chsink"
+	"tjagent/internal/follow"
 	"tjagent/internal/parser"
 )
 
@@ -69,7 +75,20 @@ type config struct {
 	batchRows  int
 	batchBytes int64
 	flushMS    int
+
+	// follow-режим (сценарий B)
+	follow      bool
+	stateDir    string
+	stopFile    string
+	pollMS      int
+	idleCloseMS int
 }
+
+// Значения по умолчанию follow-контракта.
+const (
+	defaultPollMS      = 500
+	defaultIdleCloseMS = 2000
+)
 
 type fileMeta struct {
 	path       string
@@ -93,7 +112,9 @@ func usage() {
 		"Использование:\n"+
 			"  tj-agent-go <input_dir> [workers] [output.jsonl] [--no-output]\n"+
 			"  tj-agent-go --input <dir> [--threads N] [--sink null|file:<path>|clickhouse[:<dsn>]]\n"+
-			"              [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]\n")
+			"              [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]\n"+
+			"  tj-agent-go --follow --input <dir> --sink clickhouse[:<dsn>] --state <dir> --stop-file <path>\n"+
+			"              [--poll-ms 500] [--idle-close-ms 2000] [--threads N] [--stats-json <path>]\n")
 }
 
 func run(args []string) int {
@@ -110,6 +131,22 @@ func run(args []string) int {
 	if !st.IsDir() {
 		fmt.Fprintf(os.Stderr, "Ошибка: указанный путь не является директорией: %s\n", cfg.input)
 		return 1
+	}
+
+	if cfg.follow {
+		return follow.Run(follow.Config{
+			Input:       cfg.input,
+			Threads:     cfg.workers,
+			DSN:         cfg.chDSN,
+			BatchRows:   cfg.batchRows,
+			BatchBytes:  cfg.batchBytes,
+			FlushMS:     cfg.flushMS,
+			StateDir:    cfg.stateDir,
+			StopFile:    cfg.stopFile,
+			PollMS:      cfg.pollMS,
+			IdleCloseMS: cfg.idleCloseMS,
+			StatsJSON:   cfg.statsJSON,
+		})
 	}
 
 	var s stats
@@ -331,6 +368,8 @@ func parseArgs(args []string) (config, bool) {
 
 func parseFlagArgs(args []string, cfg config) (config, bool) {
 	sink := ""
+	cfg.pollMS = defaultPollMS
+	cfg.idleCloseMS = defaultIdleCloseMS
 	next := func(i int, name string) (string, bool) {
 		if i+1 >= len(args) {
 			fmt.Fprintf(os.Stderr, "Ошибка: у флага %s нет значения\n", name)
@@ -412,8 +451,45 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 			cfg.flushMS = n
 			i++
 		case "--follow":
-			fmt.Fprintln(os.Stderr, "Ошибка: --follow пока не реализован (фаза 3)")
-			return cfg, false
+			cfg.follow = true
+		case "--state":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			cfg.stateDir = v
+			i++
+		case "--stop-file":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			cfg.stopFile = v
+			i++
+		case "--poll-ms":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 10 || n > 60_000 {
+				fmt.Fprintln(os.Stderr, "Ошибка: --poll-ms должен быть целым числом от 10 до 60000")
+				return cfg, false
+			}
+			cfg.pollMS = n
+			i++
+		case "--idle-close-ms":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 100 || n > 600_000 {
+				fmt.Fprintln(os.Stderr, "Ошибка: --idle-close-ms должен быть целым числом от 100 до 600000")
+				return cfg, false
+			}
+			cfg.idleCloseMS = n
+			i++
 		default:
 			fmt.Fprintf(os.Stderr, "Ошибка: неизвестный флаг %s\n", args[i])
 			usage()
@@ -440,6 +516,23 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 		cfg.chDSN = normalizeCHDSN(sink)
 	default:
 		fmt.Fprintf(os.Stderr, "Ошибка: неизвестный sink %q\n", sink)
+		return cfg, false
+	}
+	if cfg.follow {
+		if cfg.chDSN == "" {
+			fmt.Fprintln(os.Stderr, "Ошибка: --follow поддерживает только --sink clickhouse[:<dsn>] (контракт сценария B)")
+			return cfg, false
+		}
+		if cfg.stateDir == "" {
+			fmt.Fprintln(os.Stderr, "Ошибка: --follow требует --state <dir>")
+			return cfg, false
+		}
+		if cfg.stopFile == "" {
+			fmt.Fprintln(os.Stderr, "Ошибка: --follow требует --stop-file <path>")
+			return cfg, false
+		}
+	} else if cfg.stateDir != "" || cfg.stopFile != "" {
+		fmt.Fprintln(os.Stderr, "Ошибка: --state/--stop-file имеют смысл только с --follow")
 		return cfg, false
 	}
 	return cfg, true
@@ -636,7 +729,7 @@ func (w *chWorker) processFile(fm fileMeta, s *stats, inBuf []byte) []byte {
 	defer f.Close()
 
 	filename := filepath.Base(fm.path)
-	filePath := relFilePath(fm.path)
+	filePath := parser.RelFilePath(fm.path)
 	if w.slab == nil {
 		w.slab = make([]chsink.Row, 0, chSlabRows)
 	}
@@ -682,7 +775,7 @@ func processFile(fm fileMeta, s *stats, out chan<- []byte, pool *sync.Pool, inBu
 	defer f.Close()
 
 	filename := filepath.Base(fm.path)
-	filePath := relFilePath(fm.path)
+	filePath := parser.RelFilePath(fm.path)
 	filenameEsc := parser.AppendEscaped(nil, []byte(filename))
 	filePathEsc := parser.AppendEscaped(nil, []byte(filePath))
 
@@ -714,44 +807,6 @@ func processFile(fm fileMeta, s *stats, out chan<- []byte, pool *sync.Pool, inBu
 	s.events.Add(events)
 	s.parseSkips.Add(skips)
 	return inBuf
-}
-
-// relFilePath — «ровно два уровня предков»: <коллекция>\<process_pid>\<файл>.log
-// (format-spec §3). Компоненты берутся из фактического пути; отсутствующий
-// предок даёт пустую часть — композиция повторяет семантику fs::path::operator/.
-func relFilePath(path string) string {
-	parent := filepath.Dir(path)
-	grandparent := filepath.Dir(parent)
-	return cppJoin(cppJoin(pathFilename(grandparent), pathFilename(parent)), filepath.Base(path))
-}
-
-// pathFilename — аналог fs::path::filename(): для корня диска возвращает "".
-func pathFilename(p string) string {
-	b := filepath.Base(p)
-	if b == "." || b == string(filepath.Separator) || strings.HasSuffix(b, ":") {
-		return ""
-	}
-	return b
-}
-
-// cppJoin — семантика fs::path::operator/ для относительных компонентов.
-func cppJoin(p, x string) string {
-	if x == "" {
-		if p == "" {
-			return ""
-		}
-		if !strings.HasSuffix(p, string(filepath.Separator)) {
-			return p + string(filepath.Separator)
-		}
-		return p
-	}
-	if p == "" {
-		return x
-	}
-	if strings.HasSuffix(p, string(filepath.Separator)) {
-		return p + x
-	}
-	return p + string(filepath.Separator) + x
 }
 
 func reportStats(cfg config, s *stats, nFiles int, elapsed time.Duration) {
