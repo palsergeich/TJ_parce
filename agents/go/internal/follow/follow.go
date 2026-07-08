@@ -107,7 +107,7 @@ func Run(cfg Config) int {
 			stop:      stop,
 			reg:       reg,
 			sink:      sink,
-			builder:   chsink.NewRowBuilder(),
+			builder:   chsink.NewRowBuilder(sink.RichSchema()),
 			tailers:   map[uint32]*tailer{},
 			st:        st,
 			idleClose: idle,

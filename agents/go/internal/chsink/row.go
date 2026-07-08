@@ -1,6 +1,7 @@
 // row.go — маппинг разобранного события ТЖ в строку таблицы ClickHouse.
 //
-// Единый контракт всех трёх участников bake-off (см. README §ClickHouse-sink):
+// Bench-схема (единый контракт всех трёх участников bake-off, README
+// §ClickHouse-sink):
 //   - timestamp: "20YY-MM-DDTHH:" (из имени файла) + "ММ:СС.мммммм" (из события)
 //     → DateTime64(6); время без TZ трактуется как UTC (литерал текста равен
 //     значению при серверной TZ UTC). Деградированный timestamp (имя файла не
@@ -15,6 +16,11 @@
 //     токен. Многострочные значения сохраняют реальные \r\n. Дубликаты ключей
 //     схлопываются «последнее значение побеждает» (format-spec §4.5); порядок
 //     свойств события сохраняется в Map.
+//
+// Rich-схема (продуктовая tj.events): семантика импортёра — см. rich.go.
+// Отличия от bench в одной строке: горячие колонки берут ПЕРВОЕ вхождение
+// ключа, props-хвост сохраняет дубликаты, ts валидируется, duration без
+// насыщения.
 package chsink
 
 import (
@@ -22,36 +28,13 @@ import (
 	"time"
 
 	"tjagent/internal/parser"
-
-	"github.com/ClickHouse/clickhouse-go/v2/lib/column"
 )
 
 // Pair — одно свойство события.
 type Pair struct{ Name, Value string }
 
-// Props — упорядоченный список свойств; реализует column.IterableOrderedMap,
-// чтобы Map-колонка получала пары в порядке следования свойств в событии
-// (map[string]string дал бы случайный порядок итерации).
+// Props — упорядоченный список свойств (порядок следования в событии).
 type Props []Pair
-
-// Put — часть интерфейса IterableOrderedMap (используется клиентом при Scan).
-func (p *Props) Put(key any, value any) {
-	k, _ := key.(string)
-	v, _ := value.(string)
-	*p = append(*p, Pair{k, v})
-}
-
-// Iterator — часть интерфейса IterableOrderedMap (используется при вставке).
-func (p *Props) Iterator() column.MapIterator { return &propsIter{p: *p, i: -1} }
-
-type propsIter struct {
-	p Props
-	i int
-}
-
-func (it *propsIter) Next() bool { it.i++; return it.i < len(it.p) }
-func (it *propsIter) Key() any   { return it.p[it.i].Name }
-func (it *propsIter) Value() any { return it.p[it.i].Value }
 
 // Src — происхождение строки для чекпоинтов follow-режима: индекс файла в
 // реестре вызывающего, поколение файла (инкрементируется при усечении/
@@ -63,7 +46,9 @@ type Src struct {
 	End  int64
 }
 
-// Row — строка tj_bench.events (DDL — bakeoff-protocol §1.2).
+// Row — строка целевой таблицы. В bench-режиме заполняется базовая часть
+// (Props = все свойства, дедуп last-wins); в rich-режиме Props — хвост
+// невыбранных свойств (с дубликатами), а горячие колонки лежат в Rich.
 type Row struct {
 	Time     time.Time
 	Duration uint64
@@ -72,13 +57,18 @@ type Row struct {
 	Filename string
 	FilePath string
 	Props    Props
-	Src      Src // метка для OnAck (только follow-режим)
-	bytes    int // оценка вклада строки в порог BatchBytes
+	Rich     *RichExt // nil в bench-режиме
+	Src      Src      // метка для OnAck (только follow-режим)
+	bytes    int      // оценка вклада строки в порог BatchBytes
 }
 
 // rowFixedBytes — оценка фиксированной части строки (timestamp 8 + duration 8
 // + оффсеты Map 8) для порога батча по байтам.
 const rowFixedBytes = 24
+
+// richFixedBytes — добавка фиксированных полей rich-схемы (ts, числовые
+// колонки, хэши) к оценке r.bytes.
+const richFixedBytes = 26*8 + 16
 
 // EventTime собирает момент события из префикса даты файла (DateFromFilename,
 // "20YY-MM-DDTHH:") и времени события "ММ:СС.мммммм". Диапазоны не
@@ -159,13 +149,16 @@ const internCap = 4096
 // RowBuilder — worker-локальный конструктор строк: интернирование
 // низкокардинальных строк (имена событий, уровни, имена свойств) и
 // scratch-буфер расклейки кавычек. НЕ потокобезопасен.
+// rich=true переключает на маппинг продуктовой схемы (rich.go).
 type RowBuilder struct {
 	names   map[string]string
 	scratch []byte
+	rich    bool
+	hot     richHot // скретч rich-маппинга (обнуляется finalize)
 }
 
-func NewRowBuilder() *RowBuilder {
-	return &RowBuilder{names: make(map[string]string, 128)}
+func NewRowBuilder(rich bool) *RowBuilder {
+	return &RowBuilder{names: make(map[string]string, 128), rich: rich}
 }
 
 func (b *RowBuilder) intern(s []byte) string {
@@ -183,6 +176,9 @@ func (b *RowBuilder) intern(s []byte) string {
 // готовые строки (общие на файл). Значения свойств копируются из буфера
 // события (срезы parser валидны только внутри колбэка ScanEvents).
 func (b *RowBuilder) Build(f parser.EventFields, datePrefix, filename, filePath string) Row {
+	if b.rich {
+		return b.buildRich(f, datePrefix, filename, filePath)
+	}
 	r := Row{
 		Time:     EventTime(datePrefix, f.TimePart),
 		Duration: ParseDuration(f.Duration),
@@ -205,5 +201,37 @@ func (b *RowBuilder) Build(f parser.EventFields, datePrefix, filename, filePath 
 		r.Props = append(r.Props, Pair{Name: key, Value: val})
 		r.bytes += len(key) + len(val)
 	})
+	return r
+}
+
+// buildRich — маппинг продуктовой схемы (семантика импортёра, см. rich.go):
+// горячие свойства уходят в RichExt (первое вхождение), остальные — в
+// Row.Props БЕЗ дедупликации (mapFilter импортёра сохраняет дубликаты).
+func (b *RowBuilder) buildRich(f parser.EventFields, datePrefix, filename, filePath string) Row {
+	r := Row{
+		Time:     EventTime(datePrefix, f.TimePart), // bench-поле; rich ts — в Rich.Time
+		Duration: ParseDuration(f.Duration),
+		Event:    b.intern(f.Event),
+		Level:    b.intern(f.Level),
+		Filename: filename,
+		FilePath: filePath,
+		Rich:     &RichExt{},
+	}
+	r.bytes = rowFixedBytes + len(r.Event) + len(r.Level) + len(filename) + len(filePath)
+	b.scratch = parser.ScanProps(f.Body, f.PropsAt, b.scratch, func(name, value []byte, _ bool) {
+		isHot, keep := b.hot.dispatchHot(name, value)
+		if isHot && !keep {
+			r.bytes += len(value)
+			return
+		}
+		key := b.intern(name)
+		val := string(value)
+		r.Props = append(r.Props, Pair{Name: key, Value: val})
+		r.bytes += len(key) + len(val)
+	})
+	b.hot.finalize(r.Rich, datePrefix, f.TimePart, f.Duration, filePath)
+	// Сырые значения горячих свойств уже учтены при dispatchHot; добавляются
+	// только производные поля и фиксированная часть.
+	r.bytes += len(r.Rich.ContextLine) + 4*len(r.Rich.LockWaitConns) + richFixedBytes
 	return r
 }

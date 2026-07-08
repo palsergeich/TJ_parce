@@ -21,7 +21,8 @@
 // убывания размера (совместимость с эталонным exe для golden-сравнения).
 //
 // Exit-коды: 0 — успех; 1 — ошибка аргументов/каталога/записи вывода;
-// 2 — часть входных файлов не удалось прочитать (KI-12).
+// 2 — часть входных файлов не удалось прочитать (KI-12) либо ошибки обхода
+// каталогов, в том числе при нуле найденных файлов (KI-14, норматив v1.1).
 package main
 
 import (
@@ -154,6 +155,12 @@ func run(args []string) int {
 	if len(files) == 0 {
 		fmt.Fprintln(os.Stdout, "Не найдено .log файлов для обработки")
 		writeStatsJSON(cfg, &s, 0)
+		// KI-14 (format-spec §7): ошибки перечисления каталогов считаются и
+		// дают exit 2 даже при нуле найденных файлов (ранее — ложный успех 0).
+		if s.failed.Load() > 0 {
+			fmt.Fprintln(os.Stderr, "ВНИМАНИЕ: обход каталогов завершился с ошибками (см. счётчик ошибок)")
+			return 2
+		}
 		return 0
 	}
 
@@ -547,7 +554,9 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 //	clickhouse:host:9001/db[?...]                → дописывается схема clickhouse://
 //
 // Целевая таблица настраивается query-параметром table (например
-// ...?table=events_go), по умолчанию — events в базе из DSN.
+// ...?table=events_go), по умолчанию — events в базе из DSN; схема таблицы —
+// query-параметром schema: bench (по умолчанию, Map-таблица bake-off) или
+// rich (продуктовая tj.events, см. internal/chsink/rich.go).
 func normalizeCHDSN(sink string) string {
 	rest := strings.TrimPrefix(sink, "clickhouse")
 	rest = strings.TrimPrefix(rest, ":")
@@ -634,7 +643,7 @@ func runClickHouse(cfg config, files []fileMeta, s *stats, start time.Time) int 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cw := &chWorker{sink: sink, builder: chsink.NewRowBuilder()}
+			cw := &chWorker{sink: sink, builder: chsink.NewRowBuilder(sink.RichSchema())}
 			inBuf := make([]byte, 0, parser.ReadChunk+parser.GuardZone)
 			for {
 				i := int(nextFile.Add(1)) - 1

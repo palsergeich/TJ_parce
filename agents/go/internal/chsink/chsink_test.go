@@ -46,7 +46,7 @@ func TestParseDuration(t *testing.T) {
 }
 
 func TestRowBuilderBuild(t *testing.T) {
-	b := NewRowBuilder()
+	b := NewRowBuilder(false)
 	ev := []byte("06:58.904004-1500,CONN,2,process=rphost,OSThread=4188,Txt='a''b',Dup=1,Dup=2\r\n")
 	f, ok := parser.ParseEventFields(ev)
 	if !ok {
@@ -99,38 +99,28 @@ func TestRowBuilderBuild(t *testing.T) {
 	}
 }
 
-func TestPropsIterator(t *testing.T) {
-	p := Props{{"a", "1"}, {"b", "2"}}
-	it := p.Iterator()
-	var got []Pair
-	for it.Next() {
-		got = append(got, Pair{it.Key().(string), it.Value().(string)})
-	}
-	if len(got) != 2 || got[0] != p[0] || got[1] != p[1] {
-		t.Errorf("итератор: %+v", got)
-	}
-	var q Props
-	q.Put("k", "v")
-	if len(q) != 1 || q[0] != (Pair{"k", "v"}) {
-		t.Errorf("Put: %+v", q)
-	}
-}
-
-func TestSplitTableParam(t *testing.T) {
-	cases := []struct{ dsn, wantDSN, wantTable string }{
-		{"clickhouse://localhost:9001/tj_bench", "clickhouse://localhost:9001/tj_bench", "events"},
-		{"clickhouse://localhost:9001/tj_bench?table=events_go", "clickhouse://localhost:9001/tj_bench", "events_go"},
-		{"clickhouse://u:p@h:9001/db?dial_timeout=2s&table=t1", "clickhouse://u:p@h:9001/db?dial_timeout=2s", "t1"},
+func TestParseSinkDSN(t *testing.T) {
+	cases := []struct{ dsn, wantDSN, wantTable, wantSchema string }{
+		{"clickhouse://localhost:9001/tj_bench", "clickhouse://localhost:9001/tj_bench", "events", "bench"},
+		{"clickhouse://localhost:9001/tj_bench?table=events_go", "clickhouse://localhost:9001/tj_bench", "events_go", "bench"},
+		{"clickhouse://u:p@h:9001/db?dial_timeout=2s&table=t1", "clickhouse://u:p@h:9001/db?dial_timeout=2s", "t1", "bench"},
+		{"clickhouse://localhost:9001/tj?schema=rich", "clickhouse://localhost:9001/tj", "events", "rich"},
+		{"clickhouse://localhost:9001/tj?schema=rich&table=events", "clickhouse://localhost:9001/tj", "events", "rich"},
+		{"clickhouse://localhost:9001/tj?schema=bench", "clickhouse://localhost:9001/tj", "events", "bench"},
 	}
 	for _, c := range cases {
-		dsn, table, err := splitTableParam(c.dsn)
+		dsn, table, schema, err := parseSinkDSN(c.dsn)
 		if err != nil {
-			t.Errorf("splitTableParam(%q): %v", c.dsn, err)
+			t.Errorf("parseSinkDSN(%q): %v", c.dsn, err)
 			continue
 		}
-		if dsn != c.wantDSN || table != c.wantTable {
-			t.Errorf("splitTableParam(%q) = (%q, %q), want (%q, %q)", c.dsn, dsn, table, c.wantDSN, c.wantTable)
+		if dsn != c.wantDSN || table != c.wantTable || schema != c.wantSchema {
+			t.Errorf("parseSinkDSN(%q) = (%q, %q, %q), want (%q, %q, %q)",
+				c.dsn, dsn, table, schema, c.wantDSN, c.wantTable, c.wantSchema)
 		}
+	}
+	if _, _, _, err := parseSinkDSN("clickhouse://localhost:9001/tj?schema=wide"); err == nil {
+		t.Error("неизвестная схема обязана давать ошибку")
 	}
 	if !tableRe.MatchString("tj_bench.events_go") || tableRe.MatchString("bad-name") || tableRe.MatchString("a.b.c") {
 		t.Error("tableRe: неверная валидация")
