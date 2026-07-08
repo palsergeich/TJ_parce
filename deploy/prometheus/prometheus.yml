@@ -2,11 +2,24 @@ global:
   scrape_interval: 15s
 
 scrape_configs:
-  # Агенты-сборщики ТЖ (endpoint /metrics появится в фазе 3).
-  # Пока агентов нет — job пустой, Prometheus просто поднимается.
+  # Агенты-сборщики ТЖ (tj-agent-go, endpoint /metrics в текстовом формате
+  # Prometheus; включается в конфиге агента: metrics: '0.0.0.0:9101').
+  #
+  # Prometheus работает в Docker, агент — на хосте Windows, поэтому цель
+  # указывается через host.docker.internal (Docker Desktop резолвит его в IP
+  # хоста; проверено из контейнера tj-prometheus). На Linux без Docker Desktop
+  # используйте IP шлюза docker-сети (docker network inspect <сеть> → Gateway,
+  # обычно 172.17.0.1) либо extra_hosts: host.docker.internal:host-gateway.
+  #
+  # ВАЖНО: агент должен слушать на 0.0.0.0:9101 (не 127.0.0.1) — иначе трафик
+  # из контейнера до него не дойдёт.
   - job_name: tj-agents
     static_configs:
       - targets: []
+      # Пример: агент на этом же хосте, metrics: '0.0.0.0:9101'
+      # - targets: ["host.docker.internal:9101"]
+      #   labels:
+      #     host: srv-1c-01
 
   - job_name: prometheus
     static_configs:

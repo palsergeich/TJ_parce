@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tjagent/internal/chsink"
+	"tjagent/internal/metrics"
 	"tjagent/internal/parser"
 )
 
@@ -30,6 +31,18 @@ type tailer struct {
 	datePrefix string
 	filename   string
 	filePath   string
+	mc         *metrics.Coll // счётчики коллекции файла (/metrics)
+}
+
+// closeFile закрывает хэндл хвоста (единственная точка закрытия —
+// gauge tj_agent_files_open остаётся согласованной).
+func (t *tailer) closeFile() {
+	if t.f == nil {
+		return
+	}
+	_ = t.f.Close()
+	t.f = nil
+	metrics.FilesOpenAdd(-1)
 }
 
 type worker struct {
@@ -87,12 +100,14 @@ func (w *worker) observe(m sizeMsg) {
 	if t == nil {
 		fst := w.reg.file(m.id)
 		base := filepath.Base(fst.path)
+		fp := parser.RelFilePath(fst.path)
 		t = &tailer{
 			fst:        fst,
 			datePrefix: parser.DateFromFilename(base),
 			filename:   base,
-			filePath:   parser.RelFilePath(fst.path),
+			filePath:   fp,
 			lastData:   time.Now(),
+			mc:         metrics.GetColl(chsink.CollectionOf(fp)),
 		}
 		w.tailers[m.id] = t
 	}
@@ -177,7 +192,7 @@ func (w *worker) process(t *tailer) {
 	t.fst.size.Store(size)
 	// Усечение: авторитетный размер меньше прочитанного → рестарт с нуля.
 	if size < t.asm.readOff() {
-		fmt.Fprintf(os.Stderr, "[follow] %s: усечение (размер %d < прочитано %d) — чтение с нуля\n",
+		infof("[follow] %s: усечение (размер %d < прочитано %d) — чтение с нуля\n",
 			t.fst.path, size, t.asm.readOff())
 		w.resetTailer(t)
 	}
@@ -207,6 +222,7 @@ func (w *worker) process(t *tailer) {
 			t.started = true
 			t.lastData = time.Now()
 			w.st.bytes.Add(uint64(n))
+			t.mc.ReadBytes.Add(uint64(n))
 			t.asm.append(w.readBuf[:n], emit)
 			t.fst.readOff.Store(t.asm.readOff())
 			round += n
@@ -250,8 +266,7 @@ func (w *worker) authoritativeSize(t *tailer) (int64, bool) {
 	size := fi.Size()
 	if size == t.asm.readOff() {
 		if fi2, err := os.Stat(t.fst.path); err == nil && fi2.Size() != size {
-			_ = t.f.Close()
-			t.f = nil
+			t.closeFile()
 			return fi2.Size(), true
 		}
 	}
@@ -285,7 +300,7 @@ func (w *worker) ensureOpen(t *tailer) error {
 			}
 			if size < committed {
 				// Контракт: текущий размер меньше чекпоинта → с нуля.
-				fmt.Fprintf(os.Stderr, "[follow] %s: размер %d < чекпоинта %d — чтение с нуля\n",
+				infof("[follow] %s: размер %d < чекпоинта %d — чтение с нуля\n",
 					t.fst.path, size, committed)
 				w.reg.resetGen(t.fst)
 				committed = 0
@@ -294,12 +309,12 @@ func (w *worker) ensureOpen(t *tailer) error {
 		if committed > 0 {
 			t.asm.resumeAt(committed)
 			t.started = true
-			fmt.Fprintf(os.Stderr, "[follow] %s: резюме с оффсета %d (чекпоинт)\n", t.fst.path, committed)
+			infof("[follow] %s: резюме с оффсета %d (чекпоинт)\n", t.fst.path, committed)
 		}
 		t.fst.readOff.Store(t.asm.readOff())
 	case id != prev:
 		// Файл пересоздан под тем же путём (ротация 1С) → с нуля.
-		fmt.Fprintf(os.Stderr, "[follow] %s: идентичность сменилась — файл пересоздан, чтение с нуля\n", t.fst.path)
+		infof("[follow] %s: идентичность сменилась — файл пересоздан, чтение с нуля\n", t.fst.path)
 		w.st.rebinds.Add(1)
 		w.reg.rebind(t.fst, id)
 		t.asm.reset()
@@ -307,6 +322,7 @@ func (w *worker) ensureOpen(t *tailer) error {
 		t.fst.readOff.Store(0)
 	}
 	t.f = f
+	metrics.FilesOpenAdd(1)
 	return nil
 }
 
@@ -319,10 +335,7 @@ func (w *worker) resetTailer(t *tailer) {
 	t.started = false
 	w.reg.resetGen(t.fst)
 	t.fst.readOff.Store(0)
-	if t.f != nil {
-		_ = t.f.Close()
-		t.f = nil
-	}
+	t.closeFile()
 }
 
 // idleSweep — тик воркера: idle-закрытие событий (правило 2) и усыпление
@@ -334,11 +347,12 @@ func (w *worker) idleSweep() {
 			if t.asm.idleEmit(func(ev []byte, end int64) { w.emitEvent(t, ev, end) }) {
 				w.st.idleCloses.Add(1)
 				t.fst.readOff.Store(t.asm.readOff())
+				debugf("[follow] %s: событие закрыто по idle-таймауту\n", t.fst.path)
 			}
 		}
 		if t.f != nil && t.target <= t.asm.readOff() && now.Sub(t.lastData) >= dormantAfter {
-			_ = t.f.Close()
-			t.f = nil
+			t.closeFile()
+			debugf("[follow] %s: хэндл закрыт (нет роста %v)\n", t.fst.path, dormantAfter)
 		}
 	}
 	w.flushSlab()
@@ -349,10 +363,7 @@ func (w *worker) idleSweep() {
 func (w *worker) drainAll() {
 	for _, t := range w.tailers {
 		t.asm.drain(func(ev []byte, end int64) { w.emitEvent(t, ev, end) })
-		if t.f != nil {
-			_ = t.f.Close()
-			t.f = nil
-		}
+		t.closeFile()
 	}
 	w.flushSlab()
 }
@@ -365,12 +376,21 @@ func (w *worker) emitEvent(t *tailer, ev []byte, end int64) {
 		// parse_skip: строки нет — байты события подтвердит End следующего
 		// (перечитывание пропущенного при рестарте даёт снова пропуск, не дубль)
 		w.st.parseSkips.Add(1)
+		t.mc.ParseErrors.Add(1)
 		return
 	}
 	row := w.builder.Build(fld, t.datePrefix, t.filename, t.filePath)
 	row.Src = chsink.Src{File: t.fst.id, Gen: t.fst.genSnapshot(), End: end}
 	w.slab = append(w.slab, row)
 	w.st.events.Add(1)
+	t.mc.Events.Add(1)
+	// lag_seconds: максимальный ts обработанного события коллекции
+	// (rich-схема валидирует ts сама; эпоха/деградация игнорируется в Observe).
+	if row.Rich != nil {
+		t.mc.ObserveEventTS(row.Rich.Time)
+	} else {
+		t.mc.ObserveEventTS(row.Time)
+	}
 	if len(w.slab) >= slabRows {
 		w.flushSlab()
 	}

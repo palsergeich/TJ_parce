@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,19 +38,55 @@ const (
 	workerQueueCap = 4096
 )
 
-// Config — параметры запуска follow-режима (собирает main из CLI).
+// Config — параметры запуска follow-режима (собирает main из CLI/конфига).
 type Config struct {
-	Input       string
+	Input       string   // одиночный каталог (CLI-контракт bake-off)
+	Inputs      []string // ≥1 каталогов (файл конфигурации); при пустом — {Input}
 	Threads     int
 	DSN         string
 	BatchRows   int
 	BatchBytes  int64
 	FlushMS     int
 	StateDir    string
-	StopFile    string
+	StopFile    string // опционален при заданном StopCh
 	PollMS      int
 	IdleCloseMS int
 	StatsJSON   string
+
+	// StopCh — внешний сигнал graceful-остановки (Ctrl+C, стоп службы
+	// Windows): закрытие канала равнозначно появлению stop-file.
+	StopCh <-chan struct{}
+	// LogLevel — error | info (по умолчанию) | debug (гейт сообщений stderr;
+	// реальные ошибки печатаются всегда).
+	LogLevel string
+}
+
+// Уровень логирования (устанавливается Run; атомик — читают воркеры).
+var logLevel atomic.Int32 // 0=error 1=info 2=debug
+
+func levelOf(s string) int32 {
+	switch s {
+	case "error":
+		return 0
+	case "debug":
+		return 2
+	default:
+		return 1
+	}
+}
+
+// infof — операционные сообщения (старт/стоп/прогресс/резюме/усечения).
+func infof(format string, a ...any) {
+	if logLevel.Load() >= 1 {
+		fmt.Fprintf(os.Stderr, format, a...)
+	}
+}
+
+// debugf — отладочная детализация (регистрация файлов, idle-закрытия, дрёма).
+func debugf(format string, a ...any) {
+	if logLevel.Load() >= 2 {
+		fmt.Fprintf(os.Stderr, format, a...)
+	}
 }
 
 // stats — счётчики прогона (атомики: пишут воркеры, читает прогресс/итог).
@@ -66,10 +103,19 @@ type stats struct {
 
 // Run — вход follow-режима. Возвращает exit-код процесса.
 func Run(cfg Config) int {
-	input, err := filepath.Abs(cfg.Input)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Ошибка: не разрешить путь %s: %v\n", cfg.Input, err)
-		return 1
+	logLevel.Store(levelOf(cfg.LogLevel))
+	inputs := cfg.Inputs
+	if len(inputs) == 0 {
+		inputs = []string{cfg.Input}
+	}
+	roots := make([]string, len(inputs))
+	for i, in := range inputs {
+		abs, err := filepath.Abs(in)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка: не разрешить путь %s: %v\n", in, err)
+			return 1
+		}
+		roots[i] = abs
 	}
 	if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
 		fmt.Fprintf(os.Stderr, "Ошибка: не создать --state каталог %s: %v\n", cfg.StateDir, err)
@@ -146,29 +192,56 @@ func Run(cfg Config) int {
 				return
 			case <-t.C:
 				files, lag := reg.lag()
-				fmt.Fprintf(os.Stderr, "[follow] файлов: %d | событий: %d | вставлено: %d | отставание: %d Б | idle-закрытий: %d\n",
+				infof("[follow] файлов: %d | событий: %d | вставлено: %d | отставание: %d Б | idle-закрытий: %d\n",
 					files, st.events.Load(), sink.Inserted(), lag, st.idleCloses.Load())
 			}
 		}
 	}()
 
 	poll := time.Duration(cfg.PollMS) * time.Millisecond
-	fmt.Fprintf(os.Stderr, "[follow] старт: input=%s, таблица=%s, workers=%d, poll=%v, idle-close=%v, state=%s\n",
-		input, sink.Table(), nw, poll, idle, cfg.StateDir)
+	infof("[follow] старт: input=%s, таблица=%s, workers=%d, poll=%v, idle-close=%v, state=%s\n",
+		strings.Join(roots, "; "), sink.Table(), nw, poll, idle, cfg.StateDir)
+
+	// Причины graceful-остановки: stop-file (если задан) либо закрытие
+	// внешнего канала StopCh (Ctrl+C, стоп службы Windows).
+	stopReason := ""
+	stopRequested := func() bool {
+		if cfg.StopCh != nil {
+			select {
+			case <-cfg.StopCh:
+				stopReason = "внешний сигнал"
+				return true
+			default:
+			}
+		}
+		if cfg.StopFile != "" && fileExists(cfg.StopFile) {
+			stopReason = "stop-file"
+			return true
+		}
+		return false
+	}
 
 	// Цикл обнаружения: первый проход обрабатывает существующие файлы
 	// (с учётом чекпоинтов), дальше — непрерывный tail. Он же следит за
-	// stop-file (латентность остановки ≤ poll + время обхода).
-	d := &discovery{reg: reg, workers: workers, input: input, entries: map[string]*dEntry{}}
-	for !fileExists(cfg.StopFile) {
+	// сигналом остановки (латентность ≤ poll + время обхода; сон прерывается
+	// StopCh — стоп службы не ждёт полный poll).
+	d := &discovery{reg: reg, workers: workers, roots: roots, entries: map[string]*dEntry{}}
+	for !stopRequested() {
 		d.walk()
-		if fileExists(cfg.StopFile) {
+		if stopRequested() {
 			break
 		}
-		time.Sleep(poll)
+		if cfg.StopCh != nil {
+			select {
+			case <-cfg.StopCh:
+			case <-time.After(poll):
+			}
+		} else {
+			time.Sleep(poll)
+		}
 	}
 
-	fmt.Fprintln(os.Stderr, "[follow] обнаружен stop-file — graceful-останов")
+	infof("[follow] получен сигнал остановки (%s) — graceful-останов\n", stopReason)
 	sink.SetDraining() // до close(stop): воркеры могут стоять в In() на ретраях
 	close(stop)
 	wg.Wait()               // воркеры: дренаж \n-терминированных pending + финальные слабы
@@ -180,7 +253,7 @@ func Run(cfg Config) int {
 	}
 
 	files, lag := reg.lag()
-	fmt.Fprintf(os.Stderr, "[follow] итог: файлов: %d | событий: %d | вставлено: %d | parse_skips: %d | прочитано: %d Б | остаток (не прочитано): %d Б\n",
+	infof("[follow] итог: файлов: %d | событий: %d | вставлено: %d | parse_skips: %d | прочитано: %d Б | остаток (не прочитано): %d Б\n",
 		files, st.events.Load(), sink.Inserted(), st.parseSkips.Load(), st.bytes.Load(), lag)
 	writeStatsJSON(cfg, st, reg, sink)
 

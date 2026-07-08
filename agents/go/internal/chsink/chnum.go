@@ -150,3 +150,8 @@ func firstPathSegment(fp string) string {
 	}
 	return fp
 }
+
+// CollectionOf — collection события по его file_path (первый сегмент
+// относительного пути). Экспорт для follow-режима: лейбл collection метрик
+// /metrics обязан совпадать с одноимённой колонкой rich-схемы.
+func CollectionOf(filePath string) string { return firstPathSegment(filePath) }

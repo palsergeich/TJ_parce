@@ -32,20 +32,35 @@ type dEntry struct {
 type discovery struct {
 	reg        *registry
 	workers    []*worker
-	input      string
+	roots      []string // отслеживаемые каталоги (≥1; конфиг может дать список)
 	entries    map[string]*dEntry
 	tick       uint64
 	nextWorker int
 	walkWarned bool
 }
 
-// walk — один тик обнаружения. Отправка размеров воркерам неблокирующая:
-// полная очередь воркера (backpressure от ClickHouse) не останавливает
-// обход и проверку stop-file — недоставленный размер повторится следующим
-// тиком (sentSize не обновляется).
+// walk — один тик обнаружения: обход всех roots. Отправка размеров воркерам
+// неблокирующая: полная очередь воркера (backpressure от ClickHouse) не
+// останавливает обход и проверку stop-file — недоставленный размер
+// повторится следующим тиком (sentSize не обновляется). Пересечение
+// каталогов безопасно: entries ключуются полным путём (файл регистрируется
+// однажды).
 func (d *discovery) walk() {
 	d.tick++
-	err := filepath.WalkDir(d.input, func(path string, de fs.DirEntry, err error) error {
+	for _, root := range d.roots {
+		d.walkRoot(root)
+	}
+	// Исчезнувшие пути: при возврате форсируем resend (пересоздание файла
+	// с тем же размером иначе осталось бы незамеченным).
+	for _, e := range d.entries {
+		if e.seen != d.tick {
+			e.sentSize = -1
+		}
+	}
+}
+
+func (d *discovery) walkRoot(root string) {
+	err := filepath.WalkDir(root, func(path string, de fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // каталог мог исчезнуть между list и stat — не фатально
 		}
@@ -83,6 +98,7 @@ func (d *discovery) walk() {
 			fst.size.Store(size)
 			e = &dEntry{fs: fst, sentSize: -1}
 			d.entries[path] = e
+			debugf("[follow] новый файл: %s (%d Б) → воркер %d\n", path, size, fst.worker)
 		}
 		e.seen = d.tick
 		// Дальше размер авторитетно отслеживает воркер (growthSweep по хэндлу —
@@ -99,14 +115,7 @@ func (d *discovery) walk() {
 		return nil
 	})
 	if err != nil && !d.walkWarned {
-		fmt.Fprintf(os.Stderr, "[follow] обход %s: %v\n", d.input, err)
+		fmt.Fprintf(os.Stderr, "[follow] обход %s: %v\n", root, err)
 		d.walkWarned = true
-	}
-	// Исчезнувшие пути: при возврате форсируем resend (пересоздание файла
-	// с тем же размером иначе осталось бы незамеченным).
-	for _, e := range d.entries {
-		if e.seen != d.tick {
-			e.sentSize = -1
-		}
 	}
 }

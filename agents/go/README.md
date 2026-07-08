@@ -21,6 +21,10 @@ go build -trimpath -ldflags "-s -w" -o tj-agent-go.exe .\cmd\tj-agent-go
 # Контракт bake-off (сценарий B — follow/tail, см. раздел ниже):
 .\tj-agent-go.exe --follow --input <dir> --sink clickhouse[:<dsn>] --state <dir> --stop-file <path>
                   [--poll-ms 500] [--idle-close-ms 2000] [--threads N] [--stats-json <path>]
+
+# Эксплуатационный режим (стадия 2 — конфиг/метрики/служба, см. раздел «Эксплуатация»):
+.\tj-agent-go.exe --config tj-agent.yaml [флаги-переопределения]
+.\tj-agent-go.exe service install|uninstall|start|stop|run --config <path> [--name <имя>]
 ```
 
 Гейт корректности:
@@ -314,3 +318,69 @@ idle-close своего события, отбрасываются до след
 контракта, а не реализации); чекпоинт-файл пишется без fsync — kill -9
 процесса безопасен, крах ОС может откатить оффсеты назад (даст дубли, не
 потери).
+
+## Эксплуатация (стадия 2: конфиг, /metrics, служба Windows)
+
+Операционная обвязка follow-режима. Руководство по развёртыванию на боевых
+серверах — [deploy/agent/README.md](../../deploy/agent/README.md).
+
+### Файл конфигурации (`--config`)
+
+YAML (`gopkg.in/yaml.v3`, запиннен), эталон с комментариями —
+[tj-agent.example.yaml](tj-agent.example.yaml), разбор и валидация —
+`internal/agentcfg`. `--config` включает follow-режим; поля: `inputs`
+(СПИСОК каталогов — discovery обходит все), `sink` (DSN ClickHouse, вкл.
+`?schema=rich&table=…`), `state_dir`, `stop_file` (опционален: остановка —
+Ctrl+C в консоли, сигнал SCM у службы, stop-файл — третий способ),
+`poll_ms`/`idle_close_ms`/`flush_ms`/`batch_rows`/`batch_bytes`, `threads`,
+`metrics` (адрес /metrics; пусто = выключен), `log_level` (error|info|debug),
+`log_file`, `stats_json`. Правила:
+
+- **явные CLI-флаги перекрывают файл** (`--config a.yaml --threads 8`);
+  слияние закреплено тестами `cmd/tj-agent-go/config_test.go`;
+- незнакомый ключ — ошибка (`KnownFields`), значения вне контрактных
+  диапазонов и несуществующие `inputs` — ошибка с именем поля;
+  UTF-8 BOM у файла переживается;
+- прежние CLI-контракты (golden/bake-off) не изменились: без `--config`
+  `--follow` по-прежнему требует `--state`/`--stop-file`.
+
+### Метрики `/metrics` (Prometheus)
+
+Endpoint по адресу из `metrics:`/`--metrics` (по умолчанию **выключен**;
+работает и в batch-режиме). Формат — текстовая экспозиция 0.0.4, реализация
+ручная (`internal/metrics`, без client_golang): счётчики-атомики на горячем
+пути, лейблы экранируются, гистограмма кумулятивная; вывод проверен
+`promtool check metrics` (exit 0). Состав (storage-design §5):
+`tj_agent_read_bytes_total|events_total|parse_errors_total{collection}`
+(collection = первый сегмент относительного пути = колонка rich-схемы),
+`tj_agent_lag_seconds{collection}` (максимальный ts события против часов
+источника: локальное время агента, отображённое на ось «локальное-как-UTC»
+хранилища — иначе lag сдвигался бы на часовой пояс),
+`tj_agent_files_open`, `tj_ingest_batches_total{status=ok|retried|failed}`
+(failed — каждая неудачная ПОПЫТКА: алерт `rate(failed)>0` видит
+недоступность сервера сразу; ok/retried — подтверждённые батчи),
+`tj_ingest_rows_total`, `tj_ingest_queue_depth`,
+`tj_ingest_insert_seconds` (гистограмма латентности попытки INSERT).
+Живой замер (генератор 5000 соб/с): lag на скрейпах 0.06–0.33 с.
+
+### Служба Windows (`service …`)
+
+`golang.org/x/sys/windows/svc` (запиннен). `service install --config <path>`
+валидирует конфиг, создаёт службу `tj-agent` (StartType=Automatic, команда
+`"<exe>" service run --config "<abs>"`; `--name` — несколько агентов на
+хосте) и требует прав администратора — без них `mgr.Connect` честно даёт
+`Access is denied` с подсказкой. Stop/Shutdown от SCM = graceful-дренаж
+(тот же путь, что stop-file), `service stop` ждёт завершения дренажа до
+2 минут. Журнал: `log_file`, по умолчанию у службы —
+`<state_dir>\tj-agent-go.log`; старт/стоп дублируются в журнал событий
+Windows (источник регистрируется при install). `service run --config` в
+обычной консоли (`svc.IsWindowsService()==false`) исполняет тот же код
+консольно (Ctrl+C — graceful) — проверка конфига и конвейера без установки.
+
+### Журналирование
+
+`log_level`: `error` — только ошибки; `info` (по умолчанию) — + старт/стоп,
+прогресс раз в 2 с, резюме/усечения/смены идентичности; `debug` — +
+регистрация файлов discovery, idle-закрытия, засыпание хэндлов. Реальные
+ошибки печатаются всегда. `log_file` перенаправляет весь журнал агента
+(stderr) в файл (append); stdout batch-контрактов не трогается.

@@ -6,6 +6,8 @@ require (
 	github.com/ClickHouse/ch-go v0.73.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.47.0
 	github.com/go-faster/city v1.0.1
+	golang.org/x/sys v0.46.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -33,6 +35,5 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/tools v0.31.0 // indirect
 )

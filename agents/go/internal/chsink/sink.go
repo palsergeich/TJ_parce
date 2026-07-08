@@ -34,6 +34,8 @@ import (
 
 	ch "github.com/ClickHouse/ch-go"
 	clickhouse "github.com/ClickHouse/clickhouse-go/v2"
+
+	"tjagent/internal/metrics"
 )
 
 // Config — параметры приёмника.
@@ -175,6 +177,9 @@ func Open(ctx context.Context, cfg Config) (*Sink, error) {
 		done:      make(chan struct{}),
 		draining:  make(chan struct{}),
 	}
+	// tj_ingest_queue_depth: слабы, ожидающие батчера, на момент скрейпа
+	// (один действующий sink на процесс агента; Finish снимает сэмплер).
+	metrics.SetQueueDepthFunc(func() int { return len(s.in) })
 	if cfg.Retry {
 		go s.runRetry()
 	} else {
@@ -265,6 +270,7 @@ func (s *Sink) isDraining() bool {
 func (s *Sink) Finish() error {
 	close(s.in)
 	<-s.done
+	metrics.SetQueueDepthFunc(nil)
 	if s.client != nil {
 		_ = s.client.Close()
 	}
@@ -278,12 +284,17 @@ func (s *Sink) fail(err error) {
 	})
 }
 
-// sendColsOn — синхронная вставка блока: один INSERT-запрос с готовыми колонками.
+// sendColsOn — синхронная вставка блока: один INSERT-запрос с готовыми
+// колонками. Длительность каждой попытки (успех и ошибка) — в гистограмму
+// tj_ingest_insert_seconds.
 func (s *Sink) sendColsOn(client *ch.Client, cols colSet) error {
-	if err := client.Do(context.Background(), ch.Query{
+	start := time.Now()
+	err := client.Do(context.Background(), ch.Query{
 		Body:  s.insertSQL,
 		Input: cols.input(),
-	}); err != nil {
+	})
+	metrics.ObserveInsertSeconds(time.Since(start).Seconds())
+	if err != nil {
 		return fmt.Errorf("вставка блока (%d строк) в %s: %w", cols.rows(), s.table, err)
 	}
 	return nil
@@ -344,9 +355,12 @@ func (s *Sink) run() {
 			for cols := range sendCh {
 				if !s.failedNow() {
 					if err := s.sendColsOn(client, cols); err != nil {
+						metrics.BatchFailed()
 						s.fail(err)
 					} else {
 						s.inserted.Add(uint64(cols.rows()))
+						metrics.BatchOK()
+						metrics.AddRows(uint64(cols.rows()))
 					}
 				}
 				cols.reset()
@@ -430,6 +444,7 @@ func (s *Sink) runRetry() {
 			return err
 		}
 		s.inserted.Add(uint64(len(pending)))
+		metrics.AddRows(uint64(len(pending)))
 		if s.cfg.OnAck != nil {
 			s.cfg.OnAck(pending)
 		}
@@ -478,14 +493,26 @@ func (s *Sink) runRetry() {
 
 // sendRetry — вставка rows с повторами. Возвращает ошибку только когда
 // повторы исчерпаны (это возможно лишь после SetDraining).
+//
+// Метрики: каждая неудачная попытка — batches_total{status="failed"}
+// (алерт rate(failed)>0 видит недоступность сервера сразу); подтверждение —
+// {status="ok"} с первой попытки либо {status="retried"} после повторов.
 func (s *Sink) sendRetry(rows []Row, cols colSet) error {
 	backoff := retryMinBackoff
 	drainTries := 0
+	attempts := 0
 	for {
 		err := s.trySend(rows, cols)
+		attempts++
 		if err == nil {
+			if attempts == 1 {
+				metrics.BatchOK()
+			} else {
+				metrics.BatchRetried()
+			}
 			return nil
 		}
+		metrics.BatchFailed()
 		if s.isDraining() {
 			drainTries++
 			if drainTries >= drainMaxAttempts {

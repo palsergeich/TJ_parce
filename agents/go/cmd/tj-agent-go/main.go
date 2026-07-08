@@ -1,6 +1,6 @@
-// tj-agent-go — участник bake-off (Go): нормализатор техжурнала 1С → NDJSON.
+// tj-agent-go — агент-сборщик техжурнала 1С: нормализация → NDJSON/ClickHouse.
 //
-// Два синтаксиса запуска:
+// Синтаксисы запуска:
 //
 //  1. Контракт golden-раннера (совместим с cpp_parse/count_contexts.exe):
 //     tj-agent-go <input_dir> [workers] [output.jsonl] [--no-output]
@@ -14,6 +14,20 @@
 //     tj-agent-go --follow --input <dir> --sink clickhouse[:<dsn>]
 //     --state <dir> --stop-file <path>
 //     [--poll-ms 500] [--idle-close-ms 2000] [--threads N] [--stats-json <path>]
+//
+//  4. Эксплуатационный режим (файл конфигурации, стадия 2):
+//     tj-agent-go --config <tj-agent.yaml> [флаги-переопределения]
+//     — follow-режим целиком из YAML (internal/agentcfg; пример —
+//     agents/go/tj-agent.example.yaml); явные CLI-флаги перекрывают файл.
+//     Остановка: stop-file из конфига, Ctrl+C или сигнал службы.
+//
+//  5. Служба Windows:
+//     tj-agent-go service install|uninstall|start|stop|run --config <path> [--name <имя>]
+//     — см. service_windows.go; стоп службы = graceful-дренаж follow-режима.
+//
+// Операционные флаги (везде): --metrics <host:port> — endpoint /metrics
+// (Prometheus, по умолчанию выключен); --log-level error|info|debug;
+// --log-file <path> — журнал агента вместо stderr.
 //
 // Формат вывода — docs/format-spec.md v1.0: NDJSON без BOM, LF-терминатор
 // каждой записи. Порядок записей внутри файла = порядок событий в файле
@@ -32,6 +46,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -41,8 +56,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"tjagent/internal/agentcfg"
 	"tjagent/internal/chsink"
 	"tjagent/internal/follow"
+	"tjagent/internal/metrics"
 	"tjagent/internal/parser"
 )
 
@@ -83,6 +100,15 @@ type config struct {
 	stopFile    string
 	pollMS      int
 	idleCloseMS int
+
+	// эксплуатационный контур (стадия 2)
+	configPath  string          // --config: YAML-файл, база значений
+	inputs      []string        // каталоги ТЖ (конфиг); пусто → {input}
+	metricsAddr string          // --metrics: адрес /metrics; пусто — выключен
+	logLevel    string          // --log-level: error|info|debug (пусто = info)
+	logFile     string          // --log-file: журнал вместо stderr
+	stopCh      chan struct{}   // внешний стоп (служба Windows); nil → Ctrl+C
+	seen        map[string]bool // явно заданные CLI-флаги (слияние с конфигом)
 }
 
 // Значения по умолчанию follow-контракта.
@@ -115,28 +141,69 @@ func usage() {
 			"  tj-agent-go --input <dir> [--threads N] [--sink null|file:<path>|clickhouse[:<dsn>]]\n"+
 			"              [--batch-rows N] [--batch-bytes N] [--flush-ms N] [--stats-json <path>]\n"+
 			"  tj-agent-go --follow --input <dir> --sink clickhouse[:<dsn>] --state <dir> --stop-file <path>\n"+
-			"              [--poll-ms 500] [--idle-close-ms 2000] [--threads N] [--stats-json <path>]\n")
+			"              [--poll-ms 500] [--idle-close-ms 2000] [--threads N] [--stats-json <path>]\n"+
+			"  tj-agent-go --config <tj-agent.yaml> [флаги-переопределения]\n"+
+			"  tj-agent-go service install|uninstall|start|stop|run --config <path> [--name <имя службы>]\n"+
+			"Операционные флаги: --metrics <host:port> | --log-level error|info|debug | --log-file <path>\n")
 }
 
 func run(args []string) int {
+	if len(args) > 0 && args[0] == "service" {
+		return serviceCommand(args[1:])
+	}
 	cfg, ok := parseArgs(args)
 	if !ok {
 		return 1
 	}
-
-	st, err := os.Stat(cfg.input)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Ошибка: директория не существует: %s\n", cfg.input)
-		return 1
+	if cfg.configPath != "" {
+		if cfg, ok = applyConfigFile(cfg); !ok {
+			return 1
+		}
 	}
-	if !st.IsDir() {
-		fmt.Fprintf(os.Stderr, "Ошибка: указанный путь не является директорией: %s\n", cfg.input)
-		return 1
+	if len(cfg.inputs) == 0 {
+		cfg.inputs = []string{cfg.input}
+	}
+
+	for _, in := range cfg.inputs {
+		st, err := os.Stat(in)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка: директория не существует: %s\n", in)
+			return 1
+		}
+		if !st.IsDir() {
+			fmt.Fprintf(os.Stderr, "Ошибка: указанный путь не является директорией: %s\n", in)
+			return 1
+		}
+	}
+
+	// Журнал агента в файл (--log-file/log_file) — до первого сообщения.
+	if cfg.logFile != "" {
+		closeLog, err := redirectStderr(cfg.logFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка: лог-файл %s: %v\n", cfg.logFile, err)
+			return 1
+		}
+		defer closeLog()
+	}
+	// Endpoint /metrics (по умолчанию выключен; fail-fast на занятом порту).
+	if cfg.metricsAddr != "" {
+		srv, actual, err := metrics.StartServer(cfg.metricsAddr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка: /metrics на %s: %v\n", cfg.metricsAddr, err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "[metrics] endpoint: http://%s/metrics\n", actual)
+		defer srv.Close()
 	}
 
 	if cfg.follow {
+		stopCh := (<-chan struct{})(cfg.stopCh)
+		if stopCh == nil {
+			stopCh = interruptStopCh() // консоль: Ctrl+C — graceful-стоп
+		}
 		return follow.Run(follow.Config{
 			Input:       cfg.input,
+			Inputs:      cfg.inputs,
 			Threads:     cfg.workers,
 			DSN:         cfg.chDSN,
 			BatchRows:   cfg.batchRows,
@@ -147,6 +214,8 @@ func run(args []string) int {
 			PollMS:      cfg.pollMS,
 			IdleCloseMS: cfg.idleCloseMS,
 			StatsJSON:   cfg.statsJSON,
+			StopCh:      stopCh,
+			LogLevel:    cfg.logLevel,
 		})
 	}
 
@@ -181,6 +250,7 @@ func run(args []string) int {
 				return 1
 			}
 		}
+		var err error
 		outFile, err = os.Create(cfg.output)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Ошибка: не удалось открыть файл для записи %s: %v\n", cfg.output, err)
@@ -377,6 +447,7 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 	sink := ""
 	cfg.pollMS = defaultPollMS
 	cfg.idleCloseMS = defaultIdleCloseMS
+	cfg.seen = map[string]bool{}
 	next := func(i int, name string) (string, bool) {
 		if i+1 >= len(args) {
 			fmt.Fprintf(os.Stderr, "Ошибка: у флага %s нет значения\n", name)
@@ -385,6 +456,9 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 		return args[i+1], true
 	}
 	for i := 0; i < len(args); i++ {
+		// Явно заданные флаги перекрывают значения файла --config
+		// (значения флагов сюда не попадают: их съедает i++ своего кейса).
+		cfg.seen[args[i]] = true
 		switch args[i] {
 		case "--input":
 			v, ok := next(i, args[i])
@@ -497,11 +571,59 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 			}
 			cfg.idleCloseMS = n
 			i++
+		case "--config":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			cfg.configPath = v
+			i++
+		case "--metrics":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			cfg.metricsAddr = v
+			i++
+		case "--log-level":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			switch v {
+			case "error", "info", "debug":
+				cfg.logLevel = v
+			default:
+				fmt.Fprintf(os.Stderr, "Ошибка: --log-level %q (допустимо error | info | debug)\n", v)
+				return cfg, false
+			}
+			i++
+		case "--log-file":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			cfg.logFile = v
+			i++
 		default:
 			fmt.Fprintf(os.Stderr, "Ошибка: неизвестный флаг %s\n", args[i])
 			usage()
 			return cfg, false
 		}
+	}
+	if cfg.configPath != "" {
+		// Режим файла конфигурации: follow-режим, недостающие параметры даст
+		// файл (applyConfigFile), явные флаги перекроют его значения. Sink,
+		// если задан флагом, обязан быть ClickHouse (контракт follow).
+		cfg.follow = true
+		if sink != "" {
+			if sink != "clickhouse" && !strings.HasPrefix(sink, "clickhouse:") {
+				fmt.Fprintf(os.Stderr, "Ошибка: с --config поддерживается только --sink clickhouse[:<dsn>] (получен %q)\n", sink)
+				return cfg, false
+			}
+			cfg.chDSN = normalizeCHDSN(sink)
+		}
+		return cfg, true
 	}
 	if cfg.input == "" {
 		fmt.Fprintln(os.Stderr, "Ошибка: обязателен --input <dir>")
@@ -535,7 +657,7 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 			return cfg, false
 		}
 		if cfg.stopFile == "" {
-			fmt.Fprintln(os.Stderr, "Ошибка: --follow требует --stop-file <path>")
+			fmt.Fprintln(os.Stderr, "Ошибка: --follow требует --stop-file <path> (либо запуск через --config)")
 			return cfg, false
 		}
 	} else if cfg.stateDir != "" || cfg.stopFile != "" {
@@ -543,6 +665,148 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 		return cfg, false
 	}
 	return cfg, true
+}
+
+// applyConfigFile — слияние конфигурации: значения файла --config — база,
+// явно заданные CLI-флаги (cfg.seen) перекрывают их. Файл валидируется
+// в agentcfg.Load (диапазоны, существование каталогов, известность ключей).
+func applyConfigFile(cfg config) (config, bool) {
+	fc, err := agentcfg.Load(cfg.configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Ошибка: %v\n", err)
+		return cfg, false
+	}
+	if !cfg.seen["--input"] {
+		cfg.inputs = append([]string(nil), fc.Inputs...)
+		cfg.input = cfg.inputs[0]
+	}
+	if !cfg.seen["--sink"] {
+		cfg.chDSN = normalizeCHDSN(fc.Sink)
+	}
+	if !cfg.seen["--threads"] {
+		cfg.workers = fc.Threads
+	}
+	if !cfg.seen["--state"] {
+		cfg.stateDir = fc.StateDir
+	}
+	if !cfg.seen["--stop-file"] {
+		cfg.stopFile = fc.StopFile
+	}
+	if !cfg.seen["--poll-ms"] {
+		cfg.pollMS = fc.PollMS
+	}
+	if !cfg.seen["--idle-close-ms"] {
+		cfg.idleCloseMS = fc.IdleCloseMS
+	}
+	if !cfg.seen["--flush-ms"] {
+		cfg.flushMS = fc.FlushMS
+	}
+	if !cfg.seen["--batch-rows"] {
+		cfg.batchRows = fc.BatchRows
+	}
+	if !cfg.seen["--batch-bytes"] {
+		cfg.batchBytes = fc.BatchBytes
+	}
+	if !cfg.seen["--metrics"] {
+		cfg.metricsAddr = fc.Metrics
+	}
+	if !cfg.seen["--log-level"] {
+		cfg.logLevel = fc.LogLevel
+	}
+	if !cfg.seen["--log-file"] {
+		cfg.logFile = fc.LogFile
+	}
+	if !cfg.seen["--stats-json"] {
+		cfg.statsJSON = fc.StatsJSON
+	}
+	// stop_file в конфиге опционален: остановка — Ctrl+C (консоль) либо
+	// сигнал SCM (служба Windows); state_dir обязателен всегда.
+	if cfg.stateDir == "" {
+		fmt.Fprintln(os.Stderr, "Ошибка: не задан каталог чекпоинтов (state_dir в конфиге или --state)")
+		return cfg, false
+	}
+	return cfg, true
+}
+
+// redirectStderr направляет журнал агента (все fmt.Fprintf(os.Stderr, ...))
+// в файл: append, каталог создаётся. Возвращает функцию закрытия.
+func redirectStderr(path string) (func(), error) {
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, err
+		}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	os.Stderr = f // fmt.Fprintf(os.Stderr, ...) разыменовывает переменную при каждом вызове
+	return func() { _ = f.Close() }, nil
+}
+
+// interruptStopCh — graceful-стоп по Ctrl+C: первый сигнал закрывает канал
+// (дренаж pending, финальный flush, чекпоинты), после него обработчик
+// снимается — повторный Ctrl+C завершает процесс немедленно (поведение ОС).
+func interruptStopCh() <-chan struct{} {
+	ch := make(chan struct{})
+	sig := make(chan os.Signal, 2)
+	signal.Notify(sig, os.Interrupt)
+	go func() {
+		<-sig
+		fmt.Fprintln(os.Stderr, "[follow] получен сигнал прерывания — graceful-останов (повторный Ctrl+C — немедленный выход)")
+		signal.Stop(sig)
+		close(ch)
+	}()
+	return ch
+}
+
+// runFollowFromConfigFile — запуск follow-режима строго по файлу конфигурации
+// (путь службы Windows: CLI-переопределений нет, аргументы фиксирует install).
+// stopCh — сигнал остановки SCM; defaultLogToState — при пустом log_file
+// писать в <state_dir>\tj-agent-go.log (stderr службы уходит в никуда).
+func runFollowFromConfigFile(cfgPath string, stopCh <-chan struct{}, defaultLogToState bool) int {
+	fc, err := agentcfg.Load(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Ошибка: %v\n", err)
+		return 1
+	}
+	logFile := fc.LogFile
+	if logFile == "" && defaultLogToState {
+		logFile = filepath.Join(fc.StateDir, "tj-agent-go.log")
+	}
+	if logFile != "" {
+		closeLog, err := redirectStderr(logFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка: лог-файл %s: %v\n", logFile, err)
+			return 1
+		}
+		defer closeLog()
+	}
+	if fc.Metrics != "" {
+		srv, actual, err := metrics.StartServer(fc.Metrics)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка: /metrics на %s: %v\n", fc.Metrics, err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "[metrics] endpoint: http://%s/metrics\n", actual)
+		defer srv.Close()
+	}
+	return follow.Run(follow.Config{
+		Input:       fc.Inputs[0],
+		Inputs:      fc.Inputs,
+		Threads:     fc.Threads,
+		DSN:         normalizeCHDSN(fc.Sink),
+		BatchRows:   fc.BatchRows,
+		BatchBytes:  fc.BatchBytes,
+		FlushMS:     fc.FlushMS,
+		StateDir:    fc.StateDir,
+		StopFile:    fc.StopFile,
+		PollMS:      fc.PollMS,
+		IdleCloseMS: fc.IdleCloseMS,
+		StatsJSON:   fc.StatsJSON,
+		StopCh:      stopCh,
+		LogLevel:    fc.LogLevel,
+	})
 }
 
 // normalizeCHDSN приводит значение --sink clickhouse[:<dsn>] к полному DSN.
