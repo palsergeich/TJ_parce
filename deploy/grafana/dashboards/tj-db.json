@@ -88,12 +88,12 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse-tj"
         },
-        "definition": "SELECT DISTINCT db_name FROM tj.agg_query WHERE db_name != ''",
+        "definition": "SELECT DISTINCT db_name FROM tj.agg_query2 WHERE db_name != ''",
         "query": {
           "refId": "db_name_var",
           "queryType": "sql",
           "format": 1,
-          "rawSql": "SELECT DISTINCT db_name FROM tj.agg_query WHERE db_name != ''"
+          "rawSql": "SELECT DISTINCT db_name FROM tj.agg_query2 WHERE db_name != ''"
         },
         "multi": true,
         "includeAll": true,
@@ -333,7 +333,7 @@
       "id": 2,
       "type": "table",
       "title": "Топ запросов по суммарному времени",
-      "description": "Топ-20 нормализованных SQL-запросов (sql_hash) по суммарному времени за период: число вызовов, total_s, доля, среднее (мс), максимум (сек), возвращённые строки, образец текста SQL и строка кода 1С. Источник: tj.agg_query (почасовой роллап); применяется только фильтр по db_name (в agg_query нет usr/process_name).",
+      "description": "Топ-20 НОРМАЛИЗОВАННЫХ запросов (sql_norm_hash: литералы и хвост параметров ослеплены, docs/sql-normalization.md) по суммарному времени: вызовы, total_s, доля, avg/max, строки, число бакетов параметров, образец сырого SQL и строка кода 1С. Источник: tj.agg_query2; фильтр только db_name.",
       "gridPos": {
         "h": 11,
         "w": 24,
@@ -394,7 +394,44 @@
           },
           "queryType": "sql",
           "format": 1,
-          "rawSql": "SELECT hex(sql_hash) AS sql_hash_hex, sum(cnt) AS calls, round(sum(dur_sum)/1e6, 1) AS total_s, round(100 * sum(dur_sum) / (SELECT sum(dur_sum) FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name)), 1) AS pct, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms, round(max(dur_max)/1e6, 2) AS max_s, sum(rows_sum) AS rows_sum, substring(anyLast(sql_sample), 1, 160) AS sql, trim(BOTH ' \\t' FROM anyLast(context_sample)) AS context_line FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) AND sql_hash IN (SELECT sql_hash FROM tj.agg_query WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) GROUP BY sql_hash ORDER BY sum(dur_sum) DESC LIMIT 20) GROUP BY sql_hash ORDER BY sum(dur_sum) DESC LIMIT 20"
+          "rawSql": "SELECT hex(sql_norm_hash) AS norm_hash_hex, sum(cnt) AS calls, round(sum(dur_sum)/1e6, 1) AS total_s, round(100 * sum(dur_sum) / (SELECT sum(dur_sum) FROM tj.agg_query2 WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name)), 1) AS pct, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms, round(max(dur_max)/1e6, 2) AS max_s, sum(rows_sum) AS rows_sum, uniqExact(param_bucket) AS buckets, substringUTF8(anyLast(sql_sample), 1, 160) AS sql, trim(BOTH ' \\t' FROM anyLast(context_sample)) AS context_line FROM tj.agg_query2 WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) AND sql_norm_hash IN (SELECT sql_norm_hash FROM tj.agg_query2 WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) GROUP BY sql_norm_hash ORDER BY sum(dur_sum) DESC LIMIT 20) GROUP BY sql_norm_hash ORDER BY sum(dur_sum) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "table",
+      "title": "Деградация от числа параметров",
+      "description": "Один и тот же нормализованный запрос в разрезе бакетов числа параметров (размер IN-списка и т.п.): виден рост avg_ms с ростом числа параметров. Показаны топ-8 запросов по времени, встречающиеся более чем в одном бакете. Число параметров — метрика (значения обезличены в sql_params).",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-tj"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-tj"
+          },
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT substringUTF8(anyLast(sql_sample), 1, 100) AS sql, param_bucket AS params, sum(cnt) AS calls, round(sum(dur_sum)/sum(cnt)/1e3, 1) AS avg_ms, round(sum(dur_sum)/1e6, 1) AS total_s FROM tj.agg_query2 WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) AND sql_norm_hash IN (SELECT sql_norm_hash FROM tj.agg_query2 WHERE hour >= $__fromTime AND hour <= $__toTime AND $__conditionalAll(db_name IN (${db_name:singlequote}), $db_name) GROUP BY sql_norm_hash HAVING uniqExact(param_bucket) > 1 ORDER BY sum(dur_sum) DESC LIMIT 8) GROUP BY sql_norm_hash, param_bucket ORDER BY max(sum(dur_sum)) OVER (PARTITION BY sql_norm_hash) DESC, transform(param_bucket, ['0','1','2-10','11-100','101-1000','1000+'], [0,1,2,3,4,5], 9)"
         }
       ]
     },

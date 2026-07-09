@@ -12,7 +12,9 @@ services:
       nofile: 262144
     # ClickHouse сам ужимается под cgroup-лимит (max_server_memory_usage ~90% от него).
     # Без лимита при массовой заливке он + page cache раздувают WSL-виртуалку до потолка.
-    mem_limit: 6g
+    # 8g: bulk-перезаливка со всеми 5 MV + sql_params упиралась в 6g (MEMORY_LIMIT_EXCEEDED
+    # на 52.8 млн строк); потолок WSL-виртуалки 10 ГБ (.wslconfig) это допускает.
+    mem_limit: 8g
     environment:
       CLICKHOUSE_DB: tj
       # Без этого entrypoint генерирует users.d/default-user.xml, запирающий
