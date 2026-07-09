@@ -234,7 +234,7 @@ func TestRichEventTime(t *testing.T) {
 // Descr|Txt|txt, фолбэк t:clientID→ClientID, правило SessionID, WaitConnections,
 // контекст (хэш+последняя строка), хвост props с дубликатами, src_line=0.
 func TestBuildRich(t *testing.T) {
-	b := NewRowBuilder(true, true)
+	b := NewRowBuilder(true, true, true)
 	ev := []byte("06:58.904004-1500,DBMSSQL,2," +
 		"process=rphost,p:processName=srv,OSThread=4188," +
 		"t:clientID=,ClientID=77,t:connectID=9," +
@@ -381,7 +381,7 @@ func TestBuildRichSQLNorm(t *testing.T) {
 	// Свойство Sql с хвостом p_N: значения хвоста — в params, хвост вырезан
 	// из нормы. В сыром событии перевод строки внутри значения — реальные
 	// \r\n (parser отдаёт значение после расклейки кавычек).
-	b := NewRowBuilder(true, true)
+	b := NewRowBuilder(true, true, true)
 	ev := []byte("00:01.000000-5,DBMSSQL,1,Sql='SELECT x FROM t WHERE a = ? AND b IN (?, ?)\r\n" +
 		"p_0: 0x01\r\np_1: 5\r\np_2: 7\r\n'")
 	f, ok := parser.ParseEventFields(ev)
@@ -408,7 +408,7 @@ func TestBuildRichSQLNorm(t *testing.T) {
 	}
 
 	// Выключатель: rich без sql_norm → нулевые поля нормализации
-	boff := NewRowBuilder(true, false)
+	boff := NewRowBuilder(true, false, true)
 	f2, _ := parser.ParseEventFields([]byte("00:01.000000-5,DBMSSQL,1,Sql='SELECT 1'"))
 	r2 := boff.Build(f2, "2025-11-30T16:", "a.log", "a")
 	if r2.Rich.SQLNormHash != 0 || r2.Rich.ParamCount != 0 || r2.Rich.SQLParams != nil {
@@ -422,7 +422,7 @@ func TestBuildRichSQLNorm(t *testing.T) {
 // TestBuildRichDurationNoSaturation — rich-режим повторяет toUInt64OrZero:
 // переполнение uint64 даёт 0 (bench-путь насыщает до MaxUint64).
 func TestBuildRichDurationNoSaturation(t *testing.T) {
-	b := NewRowBuilder(true, true)
+	b := NewRowBuilder(true, true, true)
 	f, _ := parser.ParseEventFields([]byte("00:01.000000-18446744073709551616,CALL,1,Usr=U"))
 	r := b.Build(f, "2025-11-30T16:", "a.log", "a")
 	if r.Rich.DurationUs != 0 {

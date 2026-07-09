@@ -60,6 +60,13 @@ type Config struct {
 	// вычисляются и НЕ входят в INSERT — совместимость с tj.events без
 	// миграции 002_sql_norm.sql. По умолчанию (false) нормализация включена.
 	NoSQLNorm bool
+	// NoCtxSKDSmart выключает правило СКД для context_line rich-схемы
+	// (context_skd_smart: false в конфиге агента; ctxline.go,
+	// docs/context-line.md). По умолчанию (false) правило включено:
+	// для хвостов вывода СКД значимой строкой становится модуль
+	// Отчет.*/Обработка.* выше по стеку. context/context_hash не зависят
+	// от опции никогда.
+	NoCtxSKDSmart bool
 	// OnAck вызывается после КАЖДОГО подтверждённого сервером батча со
 	// строками в порядке вставки (точка продвижения чекпоинтов follow).
 	// Слайс переиспользуется — удерживать за пределами вызова нельзя.
@@ -100,6 +107,7 @@ type Sink struct {
 	table     string
 	rich      bool
 	sqlNorm   bool // rich && !cfg.NoSQLNorm
+	ctxSmart  bool // rich && !cfg.NoCtxSKDSmart
 
 	in        chan []Row
 	fatal     chan struct{} // закрыт при фатальной ошибке вставки
@@ -180,6 +188,7 @@ func Open(ctx context.Context, cfg Config) (*Sink, error) {
 		table:     table,
 		rich:      rich,
 		sqlNorm:   sqlNorm,
+		ctxSmart:  rich && !cfg.NoCtxSKDSmart,
 		insertSQL: "INSERT INTO " + quoted + " " + columns + " VALUES",
 		in:        make(chan []Row, 32),
 		fatal:     make(chan struct{}),
@@ -260,6 +269,10 @@ func (s *Sink) RichSchema() bool { return s.rich }
 // SQLNorm — true, если строки обязаны нести нормализацию SQL
 // (rich-схема с включённым sql_norm; флаг для NewRowBuilder).
 func (s *Sink) SQLNorm() bool { return s.sqlNorm }
+
+// CtxSKDSmart — true, если context_line считается по правилу СКД
+// (rich-схема с включённым context_skd_smart; флаг для NewRowBuilder).
+func (s *Sink) CtxSKDSmart() bool { return s.ctxSmart }
 
 // SetDraining — сигнал graceful-стопа (только Retry-режим): текущие и
 // последующие повторы вставки ограничиваются drainMaxAttempts попытками,

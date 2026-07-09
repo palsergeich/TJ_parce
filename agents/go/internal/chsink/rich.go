@@ -20,6 +20,8 @@
 //     (github.com/go-faster/city == cityHash64 ClickHouse, проверено батареей
 //     на живом сервере — 25/25 строк, включая UTF-8 и \r\n);
 //   - context_line: последняя непустая строка Context после удаления всех \r;
+//     при включённом context_skd_smart для хвостов СКД берётся строка
+//     модуля-«виновника» выше по стеку (ctxline.go, docs/context-line.md);
 //   - ts: только валидная дата (parseDateTime64BestEffortOrNull отвергает
 //     месяц 13 / 30 февраля / минуту 60 — в отличие от нормализации
 //     time.Date в bench-пути), иначе эпоха 1970-01-01;
@@ -274,8 +276,9 @@ func (h *richHot) dispatchHot(name, value []byte) (isHot, keepInProps bool) {
 }
 
 // finalize превращает сырые значения в RichExt (числа, фолбэки, хэши).
-// norm != nil включает нормализацию SQL (скретч воркера, см. RowBuilder).
-func (h *richHot) finalize(ext *RichExt, datePrefix string, timePart []byte, durationTok []byte, filePath string, norm *sqlnorm.Normalizer) {
+// norm != nil включает нормализацию SQL (скретч воркера, см. RowBuilder);
+// ctxSmart включает правило СКД для context_line (ctxline.go).
+func (h *richHot) finalize(ext *RichExt, datePrefix string, timePart []byte, durationTok []byte, filePath string, norm *sqlnorm.Normalizer, ctxSmart bool) {
 	ext.Time = richEventTime(datePrefix, timePart)
 	ext.DurationUs = chUint64OrZero(string(durationTok))
 	ext.Collection = firstPathSegment(filePath)
@@ -316,7 +319,7 @@ func (h *richHot) finalize(ext *RichExt, datePrefix string, timePart []byte, dur
 	if h.context != "" {
 		ext.ContextHash = city.CH64([]byte(h.context))
 	}
-	ext.ContextLine = lastNonEmptyLine(h.context)
+	ext.ContextLine = contextLine(h.context, ctxSmart)
 
 	// Первый непустой из Sql | Query | Sdbl
 	switch {

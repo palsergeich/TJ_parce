@@ -47,6 +47,14 @@ type Config struct {
 	// tj.events без миграции 002_sql_norm.sql).
 	SQLNorm bool `yaml:"sql_norm"`
 
+	// ContextSKDSmart — умная значимая строка контекста для СКД
+	// (docs/context-line.md): если последняя строка стека — вызов вывода
+	// результата компоновки (Вывести/ВывестиЭлемент/НачатьВывод/
+	// Инициализировать компоновки), context_line берётся из строки модуля
+	// Отчет.*/Обработка.* выше по стеку. context/context_hash не меняются.
+	// По умолчанию включена; false — всегда последняя непустая строка.
+	ContextSKDSmart bool `yaml:"context_skd_smart"`
+
 	// Metrics — адрес /metrics (host:port или :port); пусто — endpoint выключен.
 	Metrics string `yaml:"metrics"`
 	// LogLevel — error | info | debug.
@@ -78,14 +86,15 @@ func Default() Config {
 		threads = 1024
 	}
 	return Config{
-		PollMS:      DefaultPollMS,
-		IdleCloseMS: DefaultIdleCloseMS,
-		FlushMS:     DefaultFlushMS,
-		BatchRows:   DefaultBatchRows,
-		BatchBytes:  DefaultBatchBytes,
-		Threads:     threads,
-		SQLNorm:     true,
-		LogLevel:    "info",
+		PollMS:          DefaultPollMS,
+		IdleCloseMS:     DefaultIdleCloseMS,
+		FlushMS:         DefaultFlushMS,
+		BatchRows:       DefaultBatchRows,
+		BatchBytes:      DefaultBatchBytes,
+		Threads:         threads,
+		SQLNorm:         true,
+		ContextSKDSmart: true,
+		LogLevel:        "info",
 	}
 }
 

@@ -62,6 +62,9 @@ type Config struct {
 	// NoSQLNorm — выключить нормализацию SQL rich-схемы (sql_norm: false;
 	// см. chsink.Config.NoSQLNorm).
 	NoSQLNorm bool
+	// NoCtxSKDSmart — выключить правило СКД для context_line
+	// (context_skd_smart: false; см. chsink.Config.NoCtxSKDSmart).
+	NoCtxSKDSmart bool
 }
 
 // Уровень логирования (устанавливается Run; атомик — читают воркеры).
@@ -128,13 +131,14 @@ func Run(cfg Config) int {
 	reg := &registry{cp: cp}
 
 	sink, err := chsink.Open(context.Background(), chsink.Config{
-		DSN:        cfg.DSN,
-		BatchRows:  cfg.BatchRows,
-		BatchBytes: cfg.BatchBytes,
-		Flush:      time.Duration(cfg.FlushMS) * time.Millisecond,
-		Retry:      true,
-		OnAck:      reg.onAck,
-		NoSQLNorm:  cfg.NoSQLNorm,
+		DSN:           cfg.DSN,
+		BatchRows:     cfg.BatchRows,
+		BatchBytes:    cfg.BatchBytes,
+		Flush:         time.Duration(cfg.FlushMS) * time.Millisecond,
+		Retry:         true,
+		OnAck:         reg.onAck,
+		NoSQLNorm:     cfg.NoSQLNorm,
+		NoCtxSKDSmart: cfg.NoCtxSKDSmart,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Ошибка: ClickHouse-sink: %v\n", err)
@@ -157,7 +161,7 @@ func Run(cfg Config) int {
 			stop:      stop,
 			reg:       reg,
 			sink:      sink,
-			builder:   chsink.NewRowBuilder(sink.RichSchema(), sink.SQLNorm()),
+			builder:   chsink.NewRowBuilder(sink.RichSchema(), sink.SQLNorm(), sink.CtxSKDSmart()),
 			tailers:   map[uint32]*tailer{},
 			st:        st,
 			idleClose: idle,

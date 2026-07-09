@@ -49,6 +49,9 @@ func TestLoadDefaults(t *testing.T) {
 	if !cfg.SQLNorm {
 		t.Error("sql_norm по умолчанию обязан быть включён")
 	}
+	if !cfg.ContextSKDSmart {
+		t.Error("context_skd_smart по умолчанию обязан быть включён")
+	}
 }
 
 // TestLoadSQLNormOff — ключ sql_norm: false выключает нормализацию SQL.
@@ -59,6 +62,18 @@ func TestLoadSQLNormOff(t *testing.T) {
 	}
 	if cfg.SQLNorm {
 		t.Error("sql_norm: false не применился")
+	}
+}
+
+// TestLoadContextSKDSmartOff — ключ context_skd_smart: false выключает
+// правило СКД для context_line (docs/context-line.md).
+func TestLoadContextSKDSmartOff(t *testing.T) {
+	cfg, err := Load(minCfg(t, "context_skd_smart: false\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ContextSKDSmart {
+		t.Error("context_skd_smart: false не применился")
 	}
 }
 

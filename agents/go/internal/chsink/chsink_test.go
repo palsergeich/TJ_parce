@@ -46,7 +46,7 @@ func TestParseDuration(t *testing.T) {
 }
 
 func TestRowBuilderBuild(t *testing.T) {
-	b := NewRowBuilder(false, false)
+	b := NewRowBuilder(false, false, false)
 	ev := []byte("06:58.904004-1500,CONN,2,process=rphost,OSThread=4188,Txt='a''b',Dup=1,Dup=2\r\n")
 	f, ok := parser.ParseEventFields(ev)
 	if !ok {

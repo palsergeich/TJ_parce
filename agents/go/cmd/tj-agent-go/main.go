@@ -108,6 +108,7 @@ type config struct {
 	logLevel    string          // --log-level: error|info|debug (пусто = info)
 	logFile     string          // --log-file: журнал вместо stderr
 	noSQLNorm   bool            // sql_norm: false в конфиге (CLI-флага нет)
+	ctxSKDSmart bool            // --context-skd-smart / context_skd_smart: правило СКД context_line (по умолчанию включено)
 	stopCh      chan struct{}   // внешний стоп (служба Windows); nil → Ctrl+C
 	seen        map[string]bool // явно заданные CLI-флаги (слияние с конфигом)
 }
@@ -145,7 +146,8 @@ func usage() {
 			"              [--poll-ms 500] [--idle-close-ms 2000] [--threads N] [--stats-json <path>]\n"+
 			"  tj-agent-go --config <tj-agent.yaml> [флаги-переопределения]\n"+
 			"  tj-agent-go service install|uninstall|start|stop|run --config <path> [--name <имя службы>]\n"+
-			"Операционные флаги: --metrics <host:port> | --log-level error|info|debug | --log-file <path>\n")
+			"Операционные флаги: --metrics <host:port> | --log-level error|info|debug | --log-file <path>\n"+
+			"                    --context-skd-smart true|false (правило СКД для context_line rich-схемы, по умолчанию true)\n")
 }
 
 func run(args []string) int {
@@ -214,10 +216,11 @@ func run(args []string) int {
 			StopFile:    cfg.stopFile,
 			PollMS:      cfg.pollMS,
 			IdleCloseMS: cfg.idleCloseMS,
-			StatsJSON:   cfg.statsJSON,
-			StopCh:      stopCh,
-			LogLevel:    cfg.logLevel,
-			NoSQLNorm:   cfg.noSQLNorm,
+			StatsJSON:     cfg.statsJSON,
+			StopCh:        stopCh,
+			LogLevel:      cfg.logLevel,
+			NoSQLNorm:     cfg.noSQLNorm,
+			NoCtxSKDSmart: !cfg.ctxSKDSmart,
 		})
 	}
 
@@ -402,10 +405,11 @@ func run(args []string) int {
 
 func parseArgs(args []string) (config, bool) {
 	cfg := config{
-		workers:    maxInt(1, minInt(1024, numCPU())),
-		batchRows:  defaultBatchRows,
-		batchBytes: defaultBatchBytes,
-		flushMS:    defaultFlushMS,
+		workers:     maxInt(1, minInt(1024, numCPU())),
+		batchRows:   defaultBatchRows,
+		batchBytes:  defaultBatchBytes,
+		flushMS:     defaultFlushMS,
+		ctxSKDSmart: true,
 	}
 	if len(args) == 0 {
 		usage()
@@ -607,6 +611,18 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 			}
 			cfg.logFile = v
 			i++
+		case "--context-skd-smart":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Ошибка: --context-skd-smart %q (допустимо true | false)\n", v)
+				return cfg, false
+			}
+			cfg.ctxSKDSmart = b
+			i++
 		default:
 			fmt.Fprintf(os.Stderr, "Ошибка: неизвестный флаг %s\n", args[i])
 			usage()
@@ -721,6 +737,9 @@ func applyConfigFile(cfg config) (config, bool) {
 	if !cfg.seen["--stats-json"] {
 		cfg.statsJSON = fc.StatsJSON
 	}
+	if !cfg.seen["--context-skd-smart"] {
+		cfg.ctxSKDSmart = fc.ContextSKDSmart
+	}
 	cfg.noSQLNorm = !fc.SQLNorm // ключ только в конфиге, CLI-флага нет
 	// stop_file в конфиге опционален: остановка — Ctrl+C (консоль) либо
 	// сигнал SCM (служба Windows); state_dir обязателен всегда.
@@ -806,10 +825,11 @@ func runFollowFromConfigFile(cfgPath string, stopCh <-chan struct{}, defaultLogT
 		StopFile:    fc.StopFile,
 		PollMS:      fc.PollMS,
 		IdleCloseMS: fc.IdleCloseMS,
-		StatsJSON:   fc.StatsJSON,
-		StopCh:      stopCh,
-		LogLevel:    fc.LogLevel,
-		NoSQLNorm:   !fc.SQLNorm,
+		StatsJSON:     fc.StatsJSON,
+		StopCh:        stopCh,
+		LogLevel:      fc.LogLevel,
+		NoSQLNorm:     !fc.SQLNorm,
+		NoCtxSKDSmart: !fc.ContextSKDSmart,
 	})
 }
 
@@ -895,10 +915,11 @@ func findLogFiles(root string, s *stats) []fileMeta {
 // строки.
 func runClickHouse(cfg config, files []fileMeta, s *stats, start time.Time) int {
 	sink, err := chsink.Open(context.Background(), chsink.Config{
-		DSN:        cfg.chDSN,
-		BatchRows:  cfg.batchRows,
-		BatchBytes: cfg.batchBytes,
-		Flush:      time.Duration(cfg.flushMS) * time.Millisecond,
+		DSN:           cfg.chDSN,
+		BatchRows:     cfg.batchRows,
+		BatchBytes:    cfg.batchBytes,
+		Flush:         time.Duration(cfg.flushMS) * time.Millisecond,
+		NoCtxSKDSmart: !cfg.ctxSKDSmart,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Ошибка: ClickHouse-sink: %v\n", err)
@@ -911,7 +932,7 @@ func runClickHouse(cfg config, files []fileMeta, s *stats, start time.Time) int 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cw := &chWorker{sink: sink, builder: chsink.NewRowBuilder(sink.RichSchema(), sink.SQLNorm())}
+			cw := &chWorker{sink: sink, builder: chsink.NewRowBuilder(sink.RichSchema(), sink.SQLNorm(), sink.CtxSKDSmart())}
 			inBuf := make([]byte, 0, parser.ReadChunk+parser.GuardZone)
 			for {
 				i := int(nextFile.Add(1)) - 1

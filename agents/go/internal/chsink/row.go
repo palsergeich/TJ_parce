@@ -152,17 +152,20 @@ const internCap = 4096
 // scratch-буфер расклейки кавычек. НЕ потокобезопасен.
 // rich=true переключает на маппинг продуктовой схемы (rich.go);
 // sqlNorm=true (только с rich) дополнительно считает нормализацию SQL
-// (sql_norm_hash / param_count / sql_params, docs/sql-normalization.md).
+// (sql_norm_hash / param_count / sql_params, docs/sql-normalization.md);
+// ctxSKDSmart=true (только с rich) включает правило СКД для context_line
+// (ctxline.go, docs/context-line.md).
 type RowBuilder struct {
-	names   map[string]string
-	scratch []byte
-	rich    bool
-	hot     richHot             // скретч rich-маппинга (обнуляется finalize)
-	norm    *sqlnorm.Normalizer // nil — нормализация SQL выключена
+	names    map[string]string
+	scratch  []byte
+	rich     bool
+	ctxSmart bool                // правило СКД context_line (только rich)
+	hot      richHot             // скретч rich-маппинга (обнуляется finalize)
+	norm     *sqlnorm.Normalizer // nil — нормализация SQL выключена
 }
 
-func NewRowBuilder(rich, sqlNorm bool) *RowBuilder {
-	b := &RowBuilder{names: make(map[string]string, 128), rich: rich}
+func NewRowBuilder(rich, sqlNorm, ctxSKDSmart bool) *RowBuilder {
+	b := &RowBuilder{names: make(map[string]string, 128), rich: rich, ctxSmart: rich && ctxSKDSmart}
 	if rich && sqlNorm {
 		b.norm = &sqlnorm.Normalizer{}
 	}
@@ -237,7 +240,7 @@ func (b *RowBuilder) buildRich(f parser.EventFields, datePrefix, filename, fileP
 		r.Props = append(r.Props, Pair{Name: key, Value: val})
 		r.bytes += len(key) + len(val)
 	})
-	b.hot.finalize(r.Rich, datePrefix, f.TimePart, f.Duration, filePath, b.norm)
+	b.hot.finalize(r.Rich, datePrefix, f.TimePart, f.Duration, filePath, b.norm, b.ctxSmart)
 	// Сырые значения горячих свойств уже учтены при dispatchHot; добавляются
 	// только производные поля и фиксированная часть.
 	r.bytes += len(r.Rich.ContextLine) + 4*len(r.Rich.LockWaitConns) + richFixedBytes

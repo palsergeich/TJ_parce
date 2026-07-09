@@ -100,6 +100,51 @@ func TestCLIOverridesConfig(t *testing.T) {
 	}
 }
 
+// TestContextSKDSmartPrecedence — context_skd_smart: файл задаёт значение,
+// явный CLI-флаг перекрывает; по умолчанию опция включена.
+func TestContextSKDSmartPrecedence(t *testing.T) {
+	// По умолчанию (ни файла-ключа, ни флага) — включена
+	cfgPath, _ := writeYAML(t)
+	cfg, ok := parseArgs([]string{"--config", cfgPath})
+	if !ok {
+		t.Fatal("parseArgs")
+	}
+	if cfg, ok = applyConfigFile(cfg); !ok || !cfg.ctxSKDSmart {
+		t.Errorf("по умолчанию context_skd_smart обязан быть true: %+v", cfg.ctxSKDSmart)
+	}
+
+	// Файл выключает
+	cfgPath, _ = writeYAML(t, "context_skd_smart: false")
+	cfg, ok = parseArgs([]string{"--config", cfgPath})
+	if !ok {
+		t.Fatal("parseArgs")
+	}
+	if cfg, ok = applyConfigFile(cfg); !ok || cfg.ctxSKDSmart {
+		t.Error("context_skd_smart: false из файла не применился")
+	}
+
+	// Явный флаг перекрывает файл (в обе стороны)
+	cfg, ok = parseArgs([]string{"--config", cfgPath, "--context-skd-smart", "true"})
+	if !ok {
+		t.Fatal("parseArgs с --context-skd-smart true")
+	}
+	if cfg, ok = applyConfigFile(cfg); !ok || !cfg.ctxSKDSmart {
+		t.Error("--context-skd-smart true не перекрыл файл")
+	}
+
+	// Флаг без --config (batch-режим)
+	in := t.TempDir()
+	cfg, ok = parseArgs([]string{"--input", in, "--sink", "null", "--context-skd-smart", "false"})
+	if !ok || cfg.ctxSKDSmart {
+		t.Error("--context-skd-smart false в batch-режиме не применился")
+	}
+
+	// Мусорное значение — ошибка аргументов
+	if _, ok = parseArgs([]string{"--input", in, "--sink", "null", "--context-skd-smart", "да"}); ok {
+		t.Error("--context-skd-smart с не-булевым значением должен отвергаться")
+	}
+}
+
 // TestConfigRejectsNonClickhouseSink — с --config допустим только
 // ClickHouse-sink (контракт follow-режима).
 func TestConfigRejectsNonClickhouseSink(t *testing.T) {
