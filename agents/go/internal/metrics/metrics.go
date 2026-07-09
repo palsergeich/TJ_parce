@@ -19,6 +19,7 @@
 //	tj_ingest_rows_total                    counter — строк подтверждено сервером
 //	tj_ingest_queue_depth                   gauge   — слабов в очереди на вставку
 //	tj_ingest_insert_seconds                histogram — латентность попытки INSERT
+//	tj_agent_sqlnorm_saturated_total        counter — param_count > 65535 (насыщение UInt16)
 package metrics
 
 import (
@@ -74,6 +75,11 @@ var (
 	batchesFailed  atomic.Uint64
 	rowsTotal      atomic.Uint64
 
+	// sqlnormSaturated — событий, у которых число извлечённых SQL-параметров
+	// превысило вместимость колонки param_count (UInt16): в колонке насыщение
+	// 65535, реальная длина остаётся в length(sql_params).
+	sqlnormSaturated atomic.Uint64
+
 	queueMu sync.Mutex
 	queueFn func() int
 
@@ -117,6 +123,9 @@ func BatchFailed() { batchesFailed.Add(1) }
 
 // AddRows — строк подтверждено сервером.
 func AddRows(n uint64) { rowsTotal.Add(n) }
+
+// SQLNormSaturated — насыщение param_count (событие с > 65535 параметрами).
+func SQLNormSaturated() { sqlnormSaturated.Add(1) }
 
 // ObserveInsertSeconds — длительность одной попытки INSERT (успех и ошибка).
 func ObserveInsertSeconds(s float64) { insertHist.observe(s) }
@@ -282,6 +291,9 @@ func RenderText(w io.Writer, now time.Time) {
 	r.header("tj_ingest_rows_total", "Строк, подтверждённых сервером БД.", "counter")
 	r.sample("tj_ingest_rows_total", fuint(rowsTotal.Load()))
 
+	r.header("tj_agent_sqlnorm_saturated_total", "Событий с усечённым param_count (> 65535 SQL-параметров; реальная длина — в sql_params).", "counter")
+	r.sample("tj_agent_sqlnorm_saturated_total", fuint(sqlnormSaturated.Load()))
+
 	r.header("tj_ingest_queue_depth", "Слабов строк в очереди на вставку.", "gauge")
 	r.sample("tj_ingest_queue_depth", strconv.Itoa(queueDepth()))
 
@@ -307,6 +319,7 @@ func resetForTest() {
 	batchesRetried.Store(0)
 	batchesFailed.Store(0)
 	rowsTotal.Store(0)
+	sqlnormSaturated.Store(0)
 	SetQueueDepthFunc(nil)
 	for i := range insertHist.counts {
 		insertHist.counts[i].Store(0)

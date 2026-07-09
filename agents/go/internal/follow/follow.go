@@ -59,6 +59,9 @@ type Config struct {
 	// LogLevel — error | info (по умолчанию) | debug (гейт сообщений stderr;
 	// реальные ошибки печатаются всегда).
 	LogLevel string
+	// NoSQLNorm — выключить нормализацию SQL rich-схемы (sql_norm: false;
+	// см. chsink.Config.NoSQLNorm).
+	NoSQLNorm bool
 }
 
 // Уровень логирования (устанавливается Run; атомик — читают воркеры).
@@ -131,6 +134,7 @@ func Run(cfg Config) int {
 		Flush:      time.Duration(cfg.FlushMS) * time.Millisecond,
 		Retry:      true,
 		OnAck:      reg.onAck,
+		NoSQLNorm:  cfg.NoSQLNorm,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Ошибка: ClickHouse-sink: %v\n", err)
@@ -153,7 +157,7 @@ func Run(cfg Config) int {
 			stop:      stop,
 			reg:       reg,
 			sink:      sink,
-			builder:   chsink.NewRowBuilder(sink.RichSchema()),
+			builder:   chsink.NewRowBuilder(sink.RichSchema(), sink.SQLNorm()),
 			tailers:   map[uint32]*tailer{},
 			st:        st,
 			idleClose: idle,

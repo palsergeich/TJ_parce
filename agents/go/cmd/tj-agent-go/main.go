@@ -107,6 +107,7 @@ type config struct {
 	metricsAddr string          // --metrics: адрес /metrics; пусто — выключен
 	logLevel    string          // --log-level: error|info|debug (пусто = info)
 	logFile     string          // --log-file: журнал вместо stderr
+	noSQLNorm   bool            // sql_norm: false в конфиге (CLI-флага нет)
 	stopCh      chan struct{}   // внешний стоп (служба Windows); nil → Ctrl+C
 	seen        map[string]bool // явно заданные CLI-флаги (слияние с конфигом)
 }
@@ -216,6 +217,7 @@ func run(args []string) int {
 			StatsJSON:   cfg.statsJSON,
 			StopCh:      stopCh,
 			LogLevel:    cfg.logLevel,
+			NoSQLNorm:   cfg.noSQLNorm,
 		})
 	}
 
@@ -719,6 +721,7 @@ func applyConfigFile(cfg config) (config, bool) {
 	if !cfg.seen["--stats-json"] {
 		cfg.statsJSON = fc.StatsJSON
 	}
+	cfg.noSQLNorm = !fc.SQLNorm // ключ только в конфиге, CLI-флага нет
 	// stop_file в конфиге опционален: остановка — Ctrl+C (консоль) либо
 	// сигнал SCM (служба Windows); state_dir обязателен всегда.
 	if cfg.stateDir == "" {
@@ -806,6 +809,7 @@ func runFollowFromConfigFile(cfgPath string, stopCh <-chan struct{}, defaultLogT
 		StatsJSON:   fc.StatsJSON,
 		StopCh:      stopCh,
 		LogLevel:    fc.LogLevel,
+		NoSQLNorm:   !fc.SQLNorm,
 	})
 }
 
@@ -907,7 +911,7 @@ func runClickHouse(cfg config, files []fileMeta, s *stats, start time.Time) int 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			cw := &chWorker{sink: sink, builder: chsink.NewRowBuilder(sink.RichSchema())}
+			cw := &chWorker{sink: sink, builder: chsink.NewRowBuilder(sink.RichSchema(), sink.SQLNorm())}
 			inBuf := make([]byte, 0, parser.ReadChunk+parser.GuardZone)
 			for {
 				i := int(nextFile.Add(1)) - 1

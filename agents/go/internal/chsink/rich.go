@@ -29,9 +29,13 @@
 package chsink
 
 import (
+	"math"
 	"time"
 
 	"github.com/go-faster/city"
+
+	"tjagent/internal/metrics"
+	"tjagent/internal/sqlnorm"
 )
 
 // RichExt — вычисленные поля продуктовой схемы (всё, чего нет в базовой
@@ -83,6 +87,14 @@ type RichExt struct {
 	PlanText    string
 	Descr       string
 	Exception   string
+
+	// Нормализация SQL (docs/sql-normalization.md; правила v1, диалект MSSQL).
+	// Заполняется при включённом sql_norm и непустом SQLText: хэш нормы
+	// (литералы → '?', хвост p_N вырезан), позиционный массив значений и его
+	// длина с насыщением UInt16 (реальная длина всегда в len(SQLParams)).
+	SQLNormHash uint64
+	ParamCount  uint16
+	SQLParams   []string
 
 	LockRegions   string
 	LockWaitConns []uint32
@@ -262,7 +274,8 @@ func (h *richHot) dispatchHot(name, value []byte) (isHot, keepInProps bool) {
 }
 
 // finalize превращает сырые значения в RichExt (числа, фолбэки, хэши).
-func (h *richHot) finalize(ext *RichExt, datePrefix string, timePart []byte, durationTok []byte, filePath string) {
+// norm != nil включает нормализацию SQL (скретч воркера, см. RowBuilder).
+func (h *richHot) finalize(ext *RichExt, datePrefix string, timePart []byte, durationTok []byte, filePath string, norm *sqlnorm.Normalizer) {
 	ext.Time = richEventTime(datePrefix, timePart)
 	ext.DurationUs = chUint64OrZero(string(durationTok))
 	ext.Collection = firstPathSegment(filePath)
@@ -316,6 +329,19 @@ func (h *richHot) finalize(ext *RichExt, datePrefix string, timePart []byte, dur
 	}
 	if ext.SQLText != "" {
 		ext.SQLHash = city.CH64([]byte(ext.SQLText))
+		if norm != nil {
+			// Норм-текст не хранится (восстановим нормализатором из sql_text);
+			// в строку уходят только хэш нормы, значения и их число.
+			normText, params := norm.Normalize(ext.SQLText)
+			ext.SQLNormHash = city.CH64(normText)
+			ext.SQLParams = params
+			if len(params) > math.MaxUint16 {
+				metrics.SQLNormSaturated()
+				ext.ParamCount = math.MaxUint16
+			} else {
+				ext.ParamCount = uint16(len(params))
+			}
+		}
 	}
 	ext.PlanText = h.planSQLText
 

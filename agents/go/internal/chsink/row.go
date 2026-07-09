@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"tjagent/internal/parser"
+	"tjagent/internal/sqlnorm"
 )
 
 // Pair — одно свойство события.
@@ -149,16 +150,23 @@ const internCap = 4096
 // RowBuilder — worker-локальный конструктор строк: интернирование
 // низкокардинальных строк (имена событий, уровни, имена свойств) и
 // scratch-буфер расклейки кавычек. НЕ потокобезопасен.
-// rich=true переключает на маппинг продуктовой схемы (rich.go).
+// rich=true переключает на маппинг продуктовой схемы (rich.go);
+// sqlNorm=true (только с rich) дополнительно считает нормализацию SQL
+// (sql_norm_hash / param_count / sql_params, docs/sql-normalization.md).
 type RowBuilder struct {
 	names   map[string]string
 	scratch []byte
 	rich    bool
-	hot     richHot // скретч rich-маппинга (обнуляется finalize)
+	hot     richHot             // скретч rich-маппинга (обнуляется finalize)
+	norm    *sqlnorm.Normalizer // nil — нормализация SQL выключена
 }
 
-func NewRowBuilder(rich bool) *RowBuilder {
-	return &RowBuilder{names: make(map[string]string, 128), rich: rich}
+func NewRowBuilder(rich, sqlNorm bool) *RowBuilder {
+	b := &RowBuilder{names: make(map[string]string, 128), rich: rich}
+	if rich && sqlNorm {
+		b.norm = &sqlnorm.Normalizer{}
+	}
+	return b
 }
 
 func (b *RowBuilder) intern(s []byte) string {
@@ -229,9 +237,12 @@ func (b *RowBuilder) buildRich(f parser.EventFields, datePrefix, filename, fileP
 		r.Props = append(r.Props, Pair{Name: key, Value: val})
 		r.bytes += len(key) + len(val)
 	})
-	b.hot.finalize(r.Rich, datePrefix, f.TimePart, f.Duration, filePath)
+	b.hot.finalize(r.Rich, datePrefix, f.TimePart, f.Duration, filePath, b.norm)
 	// Сырые значения горячих свойств уже учтены при dispatchHot; добавляются
 	// только производные поля и фиксированная часть.
 	r.bytes += len(r.Rich.ContextLine) + 4*len(r.Rich.LockWaitConns) + richFixedBytes
+	for i := range r.Rich.SQLParams {
+		r.bytes += len(r.Rich.SQLParams[i]) + 8 // значения + оффсеты Array(String)
+	}
 	return r
 }

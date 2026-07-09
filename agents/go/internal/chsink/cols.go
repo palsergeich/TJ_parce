@@ -97,7 +97,8 @@ const benchInsertColumns = "(timestamp, duration, event, level, filename, file_p
 // ----------------------------------------------------------------- rich ---
 
 // richCols — продуктовая таблица tj.events (deploy/clickhouse/init/001_schema.sql),
-// 47 колонок; порядок INSERT повторяет импортёр import-jsonl.ps1.
+// 47 колонок импортёра import-jsonl.ps1 (порядок INSERT совпадает) плюс
+// 3 колонки нормализации SQL (002_sql_norm.sql) в хвосте списка.
 type richCols struct {
 	ts         *proto.ColDateTime64
 	durationUs proto.ColUInt64
@@ -147,6 +148,14 @@ type richCols struct {
 	descr       proto.ColStr
 	exception   *proto.ColLowCardinality[string]
 
+	// Нормализация SQL (002_sql_norm.sql). withNorm=false полностью выключает
+	// колонки из INSERT — совместимость с tj.events без миграции.
+	withNorm      bool
+	sqlNormHash   proto.ColUInt64
+	paramCount    proto.ColUInt16
+	sqlParamsData proto.ColStr    // элементы Array(String)
+	sqlParamsOffs proto.ColUInt64 // оффсеты Array(String)
+
 	lockRegions   proto.ColStr
 	lockWaitData  proto.ColUInt32 // элементы Array(UInt32)
 	lockWaitOffs  proto.ColUInt64
@@ -158,11 +167,12 @@ type richCols struct {
 	propsOffs proto.ColUInt64
 }
 
-func newRichCols() *richCols {
+func newRichCols(withNorm bool) *richCols {
 	lc := func() *proto.ColLowCardinality[string] {
 		return proto.NewLowCardinality(new(proto.ColStr))
 	}
 	return &richCols{
+		withNorm:     withNorm,
 		ts:           (&proto.ColDateTime64{}).WithPrecision(proto.PrecisionMicro).WithLocation(time.UTC),
 		event:        lc(),
 		level:        lc(),
@@ -232,6 +242,14 @@ func (c *richCols) appendRow(r *Row) {
 	c.contextLine.Append(x.ContextLine)
 	c.sqlText.Append(x.SQLText)
 	c.sqlHash.Append(x.SQLHash)
+	if c.withNorm {
+		c.sqlNormHash.Append(x.SQLNormHash)
+		c.paramCount.Append(x.ParamCount)
+		for _, p := range x.SQLParams {
+			c.sqlParamsData.Append(p)
+		}
+		c.sqlParamsOffs.Append(uint64(c.sqlParamsData.Rows()))
+	}
 	c.planText.Append(x.PlanText)
 	c.descr.Append(x.Descr)
 	c.exception.Append(x.Exception)
@@ -254,7 +272,7 @@ func (c *richCols) appendRow(r *Row) {
 func (c *richCols) rows() int { return c.ts.Rows() }
 
 func (c *richCols) input() proto.Input {
-	return proto.Input{
+	in := proto.Input{
 		{Name: "ts", Data: c.ts},
 		{Name: "duration_us", Data: &c.durationUs},
 		{Name: "event", Data: c.event},
@@ -310,6 +328,17 @@ func (c *richCols) input() proto.Input {
 			Values:  &c.propsVals,
 		}},
 	}
+	if c.withNorm {
+		in = append(in,
+			proto.InputColumn{Name: "sql_norm_hash", Data: &c.sqlNormHash},
+			proto.InputColumn{Name: "param_count", Data: &c.paramCount},
+			proto.InputColumn{Name: "sql_params", Data: &proto.ColArr[string]{
+				Offsets: c.sqlParamsOffs,
+				Data:    &c.sqlParamsData,
+			}},
+		)
+	}
+	return in
 }
 
 func (c *richCols) reset() {
@@ -363,14 +392,26 @@ func (c *richCols) reset() {
 	c.propsKeys.Reset()
 	c.propsVals.Reset()
 	c.propsOffs = c.propsOffs[:0]
+	c.sqlNormHash = c.sqlNormHash[:0]
+	c.paramCount = c.paramCount[:0]
+	c.sqlParamsData.Reset()
+	c.sqlParamsOffs = c.sqlParamsOffs[:0]
 }
 
-// richInsertColumns — список колонок INSERT (порядок = input()).
-const richInsertColumns = "(ts, duration_us, event, level, collection, src_file, src_path, src_line, " +
-	"process, process_name, os_thread, client_id, connect_id, session_id, usr, " +
-	"app_name, computer_name, app_id, " +
-	"dbms, db_name, db_pid, trans, rows_ret, rows_affected, " +
-	"cpu_time_us, memory, memory_peak, in_bytes, out_bytes, call_wait_us, " +
-	"iface_name, method_name, func_name, module, " +
-	"context, context_hash, context_line, sql_text, sql_hash, plan_text, descr, exception, " +
-	"lock_regions, lock_wait_conns, locks_dump, deadlock_graph, props)"
+// richInsertColumns — список колонок INSERT (порядок = input()). withNorm
+// дописывает колонки нормализации SQL (002_sql_norm.sql); без него INSERT
+// совместим с tj.events до миграции.
+func richInsertColumns(withNorm bool) string {
+	cols := "(ts, duration_us, event, level, collection, src_file, src_path, src_line, " +
+		"process, process_name, os_thread, client_id, connect_id, session_id, usr, " +
+		"app_name, computer_name, app_id, " +
+		"dbms, db_name, db_pid, trans, rows_ret, rows_affected, " +
+		"cpu_time_us, memory, memory_peak, in_bytes, out_bytes, call_wait_us, " +
+		"iface_name, method_name, func_name, module, " +
+		"context, context_hash, context_line, sql_text, sql_hash, plan_text, descr, exception, " +
+		"lock_regions, lock_wait_conns, locks_dump, deadlock_graph, props"
+	if withNorm {
+		cols += ", sql_norm_hash, param_count, sql_params"
+	}
+	return cols + ")"
+}

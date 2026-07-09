@@ -55,6 +55,11 @@ type Config struct {
 	// (graceful-стоп) число дальнейших попыток ограничено, затем — фатал.
 	// false — семантика batch-режима: flush-then-fail с первой ошибки.
 	Retry bool
+	// NoSQLNorm выключает нормализацию SQL rich-схемы (sql_norm: false в
+	// конфиге агента): колонки sql_norm_hash/param_count/sql_params не
+	// вычисляются и НЕ входят в INSERT — совместимость с tj.events без
+	// миграции 002_sql_norm.sql. По умолчанию (false) нормализация включена.
+	NoSQLNorm bool
 	// OnAck вызывается после КАЖДОГО подтверждённого сервером батча со
 	// строками в порядке вставки (точка продвижения чекпоинтов follow).
 	// Слайс переиспользуется — удерживать за пределами вызова нельзя.
@@ -94,6 +99,7 @@ type Sink struct {
 	insertSQL string
 	table     string
 	rich      bool
+	sqlNorm   bool // rich && !cfg.NoSQLNorm
 
 	in        chan []Row
 	fatal     chan struct{} // закрыт при фатальной ошибке вставки
@@ -161,16 +167,19 @@ func Open(ctx context.Context, cfg Config) (*Sink, error) {
 	}
 
 	quoted := "`" + strings.ReplaceAll(table, ".", "`.`") + "`"
+	rich := schema == "rich"
+	sqlNorm := rich && !cfg.NoSQLNorm
 	columns := benchInsertColumns
-	if schema == "rich" {
-		columns = richInsertColumns
+	if rich {
+		columns = richInsertColumns(sqlNorm)
 	}
 	s := &Sink{
 		cfg:       cfg,
 		chOpts:    chOpts,
 		client:    client,
 		table:     table,
-		rich:      schema == "rich",
+		rich:      rich,
+		sqlNorm:   sqlNorm,
 		insertSQL: "INSERT INTO " + quoted + " " + columns + " VALUES",
 		in:        make(chan []Row, 32),
 		fatal:     make(chan struct{}),
@@ -225,7 +234,7 @@ func parseSinkDSN(dsn string) (cleanDSN, table, schema string, err error) {
 // newColSet — колоночный буфер по выбранной схеме.
 func (s *Sink) newColSet() colSet {
 	if s.rich {
-		return newRichCols()
+		return newRichCols(s.sqlNorm)
 	}
 	return newBenchCols()
 }
@@ -247,6 +256,10 @@ func (s *Sink) Table() string { return s.table }
 
 // RichSchema — true при ?schema=rich (RowBuilder обязан строить RichExt).
 func (s *Sink) RichSchema() bool { return s.rich }
+
+// SQLNorm — true, если строки обязаны нести нормализацию SQL
+// (rich-схема с включённым sql_norm; флаг для NewRowBuilder).
+func (s *Sink) SQLNorm() bool { return s.sqlNorm }
 
 // SetDraining — сигнал graceful-стопа (только Retry-режим): текущие и
 // последующие повторы вставки ограничиваются drainMaxAttempts попытками,

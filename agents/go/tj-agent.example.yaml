@@ -42,6 +42,13 @@ flush_ms: 1000
 # Воркеры-хвостовики (файл закреплён за воркером). По умолчанию — число CPU.
 threads: 4
 
+# Нормализация SQL rich-схемы (docs/sql-normalization.md): литералы → '?',
+# значения — в колонку sql_params, хэш нормы — sql_norm_hash, число
+# параметров — param_count. По умолчанию включена. false — выключить:
+# колонки не вычисляются и не входят в INSERT (совместимость с tj.events
+# без миграции deploy/clickhouse/init/002_sql_norm.sql).
+sql_norm: true
+
 # Адрес endpoint'а /metrics (формат Prometheus); пусто — выключен.
 # Для скрейпа из Docker-контейнера Prometheus слушайте на 0.0.0.0
 # (host.docker.internal:9101 из контейнера → хост).

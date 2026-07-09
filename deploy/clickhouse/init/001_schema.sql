@@ -55,6 +55,13 @@ CREATE TABLE IF NOT EXISTS tj.events
     context_line     LowCardinality(String),
     sql_text         String                    CODEC(ZSTD(3)),
     sql_hash         UInt64,
+    -- Нормализация SQL (docs/sql-normalization.md): хэш нормы (литералы → '?',
+    -- хвост p_N вырезан), число параметров (насыщение 65535; реальная длина —
+    -- length(sql_params)) и позиционный массив значений (i-й элемент = i-й '?').
+    -- Норм-текст не хранится: восстанавливается нормализатором из sql_text.
+    sql_norm_hash    UInt64,
+    param_count      UInt16                    CODEC(T64, ZSTD(1)),
+    sql_params       Array(String)             CODEC(ZSTD(3)),
     plan_text        String                    CODEC(ZSTD(6)),
     descr            String                    CODEC(ZSTD(3)),
     exception        LowCardinality(String),
@@ -72,6 +79,7 @@ CREATE TABLE IF NOT EXISTS tj.events
     INDEX idx_session    session_id    TYPE bloom_filter(0.01)      GRANULARITY 4,
     INDEX idx_ctx_hash   context_hash  TYPE bloom_filter(0.01)      GRANULARITY 4,
     INDEX idx_sql_hash   sql_hash      TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_sqlnorm_hash sql_norm_hash TYPE bloom_filter(0.01)    GRANULARITY 4,
     INDEX idx_ctx_tok    context       TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 8,
     INDEX idx_sql_tok    sql_text      TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 8,
     INDEX idx_dur        duration_us   TYPE minmax                  GRANULARITY 1
@@ -173,6 +181,58 @@ SELECT toStartOfHour(ts) AS hour, dbms, db_name, sql_hash,
 FROM tj.events
 WHERE event IN ('DBMSSQL','DBPOSTGRS','DBORACLE','DB2','SDBL') AND sql_hash != 0
 GROUP BY hour, dbms, db_name, sql_hash;
+
+-- === MV-3b: роллап по НОРМАЛИЗОВАННЫМ запросам (sql_norm_hash) ===
+-- Ключ группы — хэш нормы + бакет числа параметров: план запроса зависит от
+-- длины IN-списка (500 элементов ≠ 5), поэтому бакеты разводят такие группы.
+-- Счётчики — SimpleAggregateFunction(sum, ...): плоские UInt64 в
+-- AggregatingMergeTree ТЕРЯЮТ значения при слияниях (снято с живого
+-- agg_query: sum(cnt) 9.76 млн против 14.96 млн фактических событий);
+-- agg_query оставлен как есть до миграции дашбордов.
+CREATE TABLE IF NOT EXISTS tj.agg_query2
+(
+    hour           DateTime,
+    dbms           LowCardinality(String),
+    db_name        LowCardinality(String),
+    sql_norm_hash  UInt64,
+    param_bucket   LowCardinality(String),
+    sql_sample     SimpleAggregateFunction(anyLast, String),
+    context_sample SimpleAggregateFunction(anyLast, String),
+    cnt            SimpleAggregateFunction(sum, UInt64),
+    dur_sum        SimpleAggregateFunction(sum, UInt64),
+    dur_max        SimpleAggregateFunction(max, UInt64),
+    dur_q          AggregateFunction(quantilesTDigest(0.5, 0.95, 0.99), UInt64),
+    rows_sum       SimpleAggregateFunction(sum, UInt64),
+    params_avg     AggregateFunction(avg, UInt16)
+)
+ENGINE = AggregatingMergeTree
+PARTITION BY toYYYYMM(hour)
+ORDER BY (dbms, hour, sql_norm_hash, param_bucket)
+TTL hour + INTERVAL 400 DAY;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS tj.mv_agg_query2 TO tj.agg_query2 AS
+SELECT
+    toStartOfHour(ts) AS hour,
+    dbms,
+    anyLast(db_name) AS db_name,
+    sql_norm_hash,
+    multiIf(param_count = 0, '0',
+            param_count = 1, '1',
+            param_count <= 10, '2-10',
+            param_count <= 100, '11-100',
+            param_count <= 1000, '101-1000',
+            '1000+') AS param_bucket,
+    anyLast(sql_text) AS sql_sample,
+    anyLast(context_line) AS context_sample,
+    count() AS cnt,
+    sum(duration_us) AS dur_sum,
+    max(duration_us) AS dur_max,
+    quantilesTDigestState(0.5, 0.95, 0.99)(duration_us) AS dur_q,
+    sum(rows_ret) AS rows_sum,
+    avgState(param_count) AS params_avg
+FROM tj.events
+WHERE sql_norm_hash != 0
+GROUP BY hour, dbms, sql_norm_hash, param_bucket;
 
 -- === MV-4: блокировки/ожидания ===
 CREATE TABLE IF NOT EXISTS tj.agg_locks

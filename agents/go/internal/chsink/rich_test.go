@@ -234,7 +234,7 @@ func TestRichEventTime(t *testing.T) {
 // Descr|Txt|txt, фолбэк t:clientID→ClientID, правило SessionID, WaitConnections,
 // контекст (хэш+последняя строка), хвост props с дубликатами, src_line=0.
 func TestBuildRich(t *testing.T) {
-	b := NewRowBuilder(true)
+	b := NewRowBuilder(true, true)
 	ev := []byte("06:58.904004-1500,DBMSSQL,2," +
 		"process=rphost,p:processName=srv,OSThread=4188," +
 		"t:clientID=,ClientID=77,t:connectID=9," +
@@ -304,6 +304,13 @@ func TestBuildRich(t *testing.T) {
 	if x.SQLText != "SELECT 1" || x.SQLHash != city.CH64([]byte("SELECT 1")) {
 		t.Errorf("SQL: %q / %d", x.SQLText, x.SQLHash)
 	}
+	// Нормализация: 'SELECT 1' → 'SELECT ?', param_count=1, params=['1']
+	if x.SQLNormHash != city.CH64([]byte("SELECT ?")) {
+		t.Errorf("SQLNormHash = %d, want cityHash64('SELECT ?')", x.SQLNormHash)
+	}
+	if x.ParamCount != 1 || len(x.SQLParams) != 1 || x.SQLParams[0] != "1" {
+		t.Errorf("нормализация: count=%d params=%q", x.ParamCount, x.SQLParams)
+	}
 	if x.PlanText != "plan" {
 		t.Errorf("PlanText = %q", x.PlanText)
 	}
@@ -345,11 +352,14 @@ func TestBuildRich(t *testing.T) {
 	if r2.Rich.Context != "x" || r2.Rich.SQLText != "" || r2.Rich.Usr != "" || len(r2.Props) != 0 {
 		t.Errorf("скретч builder'а грязный: %+v props=%+v", r2.Rich, r2.Props)
 	}
-	// Пустой контекст → нулевые хэши
+	// Пустой контекст → нулевые хэши (нормализация не считается без sql_text)
 	f3, _ := parser.ParseEventFields([]byte("00:01.000000-5,CALL,1,Usr=U"))
 	r3 := b.Build(f3, "2025-11-30T16:", "a.log", "a")
 	if r3.Rich.ContextHash != 0 || r3.Rich.SQLHash != 0 || r3.Rich.ContextLine != "" {
 		t.Errorf("пустые тексты: %+v", r3.Rich)
+	}
+	if r3.Rich.SQLNormHash != 0 || r3.Rich.ParamCount != 0 || r3.Rich.SQLParams != nil {
+		t.Errorf("нормализация пустого sql_text: %+v", r3.Rich)
 	}
 	// Sql имеет приоритет над Query
 	f4, _ := parser.ParseEventFields([]byte("00:01.000000-5,SDBL,1,Sdbl='S3',Sql='S1',Query='S2'"))
@@ -365,10 +375,54 @@ func TestBuildRich(t *testing.T) {
 	}
 }
 
+// TestBuildRichSQLNorm — маппинг нормализации: доминирующий шаблон корпуса
+// (тело с '?' + хвост p_N) и выключатель sql_norm.
+func TestBuildRichSQLNorm(t *testing.T) {
+	// Свойство Sql с хвостом p_N: значения хвоста — в params, хвост вырезан
+	// из нормы. В сыром событии перевод строки внутри значения — реальные
+	// \r\n (parser отдаёт значение после расклейки кавычек).
+	b := NewRowBuilder(true, true)
+	ev := []byte("00:01.000000-5,DBMSSQL,1,Sql='SELECT x FROM t WHERE a = ? AND b IN (?, ?)\r\n" +
+		"p_0: 0x01\r\np_1: 5\r\np_2: 7\r\n'")
+	f, ok := parser.ParseEventFields(ev)
+	if !ok {
+		t.Fatal("событие отброшено")
+	}
+	r := b.Build(f, "2025-11-30T16:", "a.log", "a")
+	x := r.Rich
+	wantNorm := "SELECT x FROM t WHERE a = ? AND b IN (?)"
+	if x.SQLNormHash != city.CH64([]byte(wantNorm)) {
+		t.Errorf("SQLNormHash не совпал с cityHash64(%q)", wantNorm)
+	}
+	if x.ParamCount != 3 || len(x.SQLParams) != 3 {
+		t.Fatalf("count=%d params=%q", x.ParamCount, x.SQLParams)
+	}
+	for i, want := range []string{"0x01", "5", "7"} {
+		if x.SQLParams[i] != want {
+			t.Errorf("params[%d] = %q, want %q", i, x.SQLParams[i], want)
+		}
+	}
+	// sql_hash сырого текста не зависит от нормализации
+	if x.SQLHash == 0 || x.SQLHash == x.SQLNormHash {
+		t.Errorf("SQLHash = %d, SQLNormHash = %d", x.SQLHash, x.SQLNormHash)
+	}
+
+	// Выключатель: rich без sql_norm → нулевые поля нормализации
+	boff := NewRowBuilder(true, false)
+	f2, _ := parser.ParseEventFields([]byte("00:01.000000-5,DBMSSQL,1,Sql='SELECT 1'"))
+	r2 := boff.Build(f2, "2025-11-30T16:", "a.log", "a")
+	if r2.Rich.SQLNormHash != 0 || r2.Rich.ParamCount != 0 || r2.Rich.SQLParams != nil {
+		t.Errorf("sql_norm=false: %+v", r2.Rich)
+	}
+	if r2.Rich.SQLHash == 0 {
+		t.Error("sql_hash обязан считаться и при выключенной нормализации")
+	}
+}
+
 // TestBuildRichDurationNoSaturation — rich-режим повторяет toUInt64OrZero:
 // переполнение uint64 даёт 0 (bench-путь насыщает до MaxUint64).
 func TestBuildRichDurationNoSaturation(t *testing.T) {
-	b := NewRowBuilder(true)
+	b := NewRowBuilder(true, true)
 	f, _ := parser.ParseEventFields([]byte("00:01.000000-18446744073709551616,CALL,1,Usr=U"))
 	r := b.Build(f, "2025-11-30T16:", "a.log", "a")
 	if r.Rich.DurationUs != 0 {

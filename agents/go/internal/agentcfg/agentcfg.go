@@ -41,6 +41,12 @@ type Config struct {
 	BatchBytes  int64 `yaml:"batch_bytes"`
 	Threads     int   `yaml:"threads"`
 
+	// SQLNorm — нормализация SQL rich-схемы (sql_norm_hash / param_count /
+	// sql_params, docs/sql-normalization.md). По умолчанию включена; false
+	// отключает вычисление и убирает колонки из INSERT (совместимость с
+	// tj.events без миграции 002_sql_norm.sql).
+	SQLNorm bool `yaml:"sql_norm"`
+
 	// Metrics — адрес /metrics (host:port или :port); пусто — endpoint выключен.
 	Metrics string `yaml:"metrics"`
 	// LogLevel — error | info | debug.
@@ -78,6 +84,7 @@ func Default() Config {
 		BatchRows:   DefaultBatchRows,
 		BatchBytes:  DefaultBatchBytes,
 		Threads:     threads,
+		SQLNorm:     true,
 		LogLevel:    "info",
 	}
 }

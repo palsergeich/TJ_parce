@@ -46,6 +46,20 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.StopFile != "" || cfg.Metrics != "" {
 		t.Errorf("опциональные поля должны быть пустыми: %+v", cfg)
 	}
+	if !cfg.SQLNorm {
+		t.Error("sql_norm по умолчанию обязан быть включён")
+	}
+}
+
+// TestLoadSQLNormOff — ключ sql_norm: false выключает нормализацию SQL.
+func TestLoadSQLNormOff(t *testing.T) {
+	cfg, err := Load(minCfg(t, "sql_norm: false\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SQLNorm {
+		t.Error("sql_norm: false не применился")
+	}
 }
 
 func TestLoadFullOverride(t *testing.T) {
