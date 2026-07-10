@@ -83,6 +83,16 @@ var (
 	queueMu sync.Mutex
 	queueFn func() int
 
+	// Дисковый буфер follow-режима (ADR vector §1). Сэмплер выставляется
+	// follow.Run только при buffer.type=disk; без него gauges отдают нули.
+	bufMu sync.Mutex
+	bufFn func() (bytes int64, segments int, oldestUnackedSec float64)
+
+	// bufferWriteErrors — ошибки I/O дискового буфера (запись/fsync/чтение/
+	// курсор). Инвариант эксплуатации: счётчик равен 0 — любая такая ошибка
+	// жёстко останавливает агент (принцип «не терять молча»).
+	bufferWriteErrors atomic.Uint64
+
 	insertHist = newHistogram(
 		// Латентность INSERT: применение блока rich-схемы — сотни мс, деградация
 		// при недоступном сервере — до dial-таймаутов в десятки секунд.
@@ -147,6 +157,28 @@ func queueDepth() int {
 	}
 	return f()
 }
+
+// SetBufferStatsFunc устанавливает сэмплер метрик дискового буфера
+// (tj_buffer_bytes / tj_buffer_segments / tj_buffer_oldest_unacked_seconds);
+// nil — снять (нули).
+func SetBufferStatsFunc(f func() (bytes int64, segments int, oldestUnackedSec float64)) {
+	bufMu.Lock()
+	bufFn = f
+	bufMu.Unlock()
+}
+
+func bufferStats() (int64, int, float64) {
+	bufMu.Lock()
+	f := bufFn
+	bufMu.Unlock()
+	if f == nil {
+		return 0, 0, 0
+	}
+	return f()
+}
+
+// BufferWriteError — ошибка I/O дискового буфера (перед жёсткой остановкой).
+func BufferWriteError() { bufferWriteErrors.Add(1) }
 
 // histogram — кумулятивная гистограмма с фиксированными границами.
 type histogram struct {
@@ -297,6 +329,16 @@ func RenderText(w io.Writer, now time.Time) {
 	r.header("tj_ingest_queue_depth", "Слабов строк в очереди на вставку.", "gauge")
 	r.sample("tj_ingest_queue_depth", strconv.Itoa(queueDepth()))
 
+	bufBytes, bufSegs, bufOldest := bufferStats()
+	r.header("tj_buffer_bytes", "Суммарный размер живых сегментов дискового буфера (0 - буфер выключен или пуст).", "gauge")
+	r.sample("tj_buffer_bytes", strconv.FormatInt(bufBytes, 10))
+	r.header("tj_buffer_segments", "Число живых сегментов дискового буфера.", "gauge")
+	r.sample("tj_buffer_segments", strconv.Itoa(bufSegs))
+	r.header("tj_buffer_oldest_unacked_seconds", "Возраст старейшего durable-события буфера, не подтверждённого БД (реальное отставание доставки при включённом буфере).", "gauge")
+	r.sample("tj_buffer_oldest_unacked_seconds", ffloat(bufOldest))
+	r.header("tj_buffer_write_errors_total", "Ошибки I/O дискового буфера; любая ошибка жёстко останавливает агент - счётчик обязан быть 0.", "counter")
+	r.sample("tj_buffer_write_errors_total", fuint(bufferWriteErrors.Load()))
+
 	r.header("tj_ingest_insert_seconds", "Латентность одной попытки INSERT (успехи и ошибки).", "histogram")
 	var cum uint64
 	for i, b := range insertHist.bounds {
@@ -320,7 +362,9 @@ func resetForTest() {
 	batchesFailed.Store(0)
 	rowsTotal.Store(0)
 	sqlnormSaturated.Store(0)
+	bufferWriteErrors.Store(0)
 	SetQueueDepthFunc(nil)
+	SetBufferStatsFunc(nil)
 	for i := range insertHist.counts {
 		insertHist.counts[i].Store(0)
 	}

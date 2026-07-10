@@ -15,6 +15,7 @@ import (
 	"tjagent/internal/chsink"
 	"tjagent/internal/metrics"
 	"tjagent/internal/parser"
+	"tjagent/internal/wal"
 )
 
 // tailer — состояние слежения за одним файлом (владеет только его воркер).
@@ -32,6 +33,11 @@ type tailer struct {
 	filename   string
 	filePath   string
 	mc         *metrics.Coll // счётчики коллекции файла (/metrics)
+
+	// JSON-экранированные filename/file_path для NDJSON-пути дискового
+	// буфера (заполняются только при wal != nil).
+	filenameEsc []byte
+	filePathEsc []byte
 }
 
 // closeFile закрывает хэндл хвоста (единственная точка закрытия —
@@ -56,6 +62,13 @@ type worker struct {
 	idleClose time.Duration
 	poll      time.Duration // каданс авторитетной проверки роста (--poll-ms)
 
+	// wal != nil — режим дискового буфера: событие сериализуется в NDJSON
+	// и пишется в буфер (Append блокируется на полном буфере — это и есть
+	// backpressure), слабы/sink воркером не используются.
+	wal     *wal.WAL
+	ndjBuf  []byte
+	walDead bool // ErrStopped/фатал буфера: производство событий прекращено
+
 	tailers     map[uint32]*tailer
 	queue       []uint32
 	slab        []chsink.Row
@@ -65,6 +78,9 @@ type worker struct {
 	lastGrowth  time.Time // последний growthSweep
 	lastDormant time.Time // последний os.Stat-обход дремлющих
 }
+
+// dead — производство строк остановлено (фатал приёмника либо стоп/фатал буфера).
+func (w *worker) dead() bool { return w.sinkDead || w.walDead }
 
 func (w *worker) run() {
 	w.readBuf = make([]byte, tailReadChunk)
@@ -108,6 +124,10 @@ func (w *worker) observe(m sizeMsg) {
 			filePath:   fp,
 			lastData:   time.Now(),
 			mc:         metrics.GetColl(chsink.CollectionOf(fp)),
+		}
+		if w.wal != nil {
+			t.filenameEsc = parser.AppendEscaped(nil, []byte(base))
+			t.filePathEsc = parser.AppendEscaped(nil, []byte(fp))
 		}
 		w.tailers[m.id] = t
 	}
@@ -181,7 +201,7 @@ func (w *worker) pump() {
 // открытие/идентичность → дочитывание хвоста → слабы. Не догнали за раунд —
 // обратно в очередь.
 func (w *worker) process(t *tailer) {
-	if w.sinkDead {
+	if w.dead() {
 		return
 	}
 	size, ok := w.authoritativeSize(t)
@@ -216,7 +236,7 @@ func (w *worker) process(t *tailer) {
 
 	emit := func(ev []byte, end int64) { w.emitEvent(t, ev, end) }
 	round := 0
-	for round < maxRoundBytes && !w.sinkDead {
+	for round < maxRoundBytes && !w.dead() {
 		n, err := t.f.ReadAt(w.readBuf, t.asm.readOff())
 		if n > 0 {
 			t.started = true
@@ -370,7 +390,12 @@ func (w *worker) drainAll() {
 
 // emitEvent — событие собрано: разбор полей, строка таблицы с меткой
 // {файл, поколение, конец события} для продвижения чекпоинта по ack'у.
+// В режиме дискового буфера — NDJSON-сериализация и запись кадра (emitWAL).
 func (w *worker) emitEvent(t *tailer, ev []byte, end int64) {
+	if w.wal != nil {
+		w.emitWAL(t, ev, end)
+		return
+	}
 	fld, ok := parser.ParseEventFields(ev)
 	if !ok {
 		// parse_skip: строки нет — байты события подтвердит End следующего
@@ -394,6 +419,37 @@ func (w *worker) emitEvent(t *tailer, ev []byte, end int64) {
 	if len(w.slab) >= slabRows {
 		w.flushSlab()
 	}
+}
+
+// emitWAL — путь дискового буфера: NDJSON-строка события (формат
+// format-spec, тот же AppendEvent, что у file-sink) → кадр буфера с
+// метаданными для чекпоинта после fsync. Блокировка Append на полном
+// буфере — backpressure чтения (ТЖ-файлы — внешний WAL). Правила
+// parse_skip идентичны прямому пути: AppendEvent и ParseEventFields
+// отвергают одни и те же события (TestFieldsMirrorAppendEvent).
+func (w *worker) emitWAL(t *tailer, ev []byte, end int64) {
+	if w.walDead {
+		return
+	}
+	line, ok := parser.AppendEvent(w.ndjBuf[:0], ev, t.datePrefix, t.filenameEsc, t.filePathEsc)
+	w.ndjBuf = line[:0] // буфер переиспользуется (Append копирует до возврата)
+	if !ok {
+		w.st.parseSkips.Add(1)
+		t.mc.ParseErrors.Add(1)
+		return
+	}
+	err := w.wal.Append(line, wal.Meta{File: t.fst.id, Gen: t.fst.genSnapshot(), End: end})
+	if err != nil {
+		// ErrStopped — graceful-стоп (событие не записано, чекпоинт не двигался,
+		// перечитается при следующем запуске); фатал буфера жёстко останавливает
+		// агент в Run. В обоих случаях воркер замолкает.
+		w.walDead = true
+		return
+	}
+	w.st.events.Add(1)
+	t.mc.Events.Add(1)
+	// lag_seconds: момент события по маске (ММ:СС.мммммм — первые 12 байт).
+	t.mc.ObserveEventTS(chsink.EventTime(t.datePrefix, ev[:12]))
 }
 
 // flushSlab — слаб батчеру. Блокирующая отправка — это и есть backpressure

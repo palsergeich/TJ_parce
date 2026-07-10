@@ -49,6 +49,10 @@ func TestRenderTextFormat(t *testing.T) {
 		`tj_ingest_batches_total{status="failed"} 1` + "\n",
 		"tj_ingest_rows_total 50\n",
 		"tj_ingest_queue_depth 7\n",
+		"tj_buffer_bytes 0\n",
+		"tj_buffer_segments 0\n",
+		"tj_buffer_oldest_unacked_seconds 0\n",
+		"tj_buffer_write_errors_total 0\n",
 		"# TYPE tj_ingest_insert_seconds histogram\n",
 		`tj_ingest_insert_seconds_bucket{le="0.01"} 0` + "\n",
 		`tj_ingest_insert_seconds_bucket{le="0.025"} 1` + "\n",
@@ -80,7 +84,8 @@ func TestRenderTextFormat(t *testing.T) {
 			}
 			name = name[:i]
 		}
-		if !strings.HasPrefix(name, "tj_agent_") && !strings.HasPrefix(name, "tj_ingest_") {
+		if !strings.HasPrefix(name, "tj_agent_") && !strings.HasPrefix(name, "tj_ingest_") &&
+			!strings.HasPrefix(name, "tj_buffer_") {
 			t.Errorf("неожиданное имя метрики: %q", line)
 		}
 	}
@@ -189,5 +194,27 @@ func TestHistogramCumulative(t *testing.T) {
 	}
 	if inf != 7 || count != 7 {
 		t.Errorf("+Inf=%d count=%d, ожидалось 7/7", inf, count)
+	}
+}
+
+// TestBufferMetricsSampler — метрики дискового буфера берутся из сэмплера
+// (follow.Run ставит его при buffer.type=disk), счётчик ошибок монотонен.
+func TestBufferMetricsSampler(t *testing.T) {
+	resetForTest()
+	defer resetForTest()
+	SetBufferStatsFunc(func() (int64, int, float64) { return 123456, 3, 42.5 })
+	BufferWriteError()
+	var b bytes.Buffer
+	RenderText(&b, time.Unix(1_000_000, 0).UTC())
+	out := b.String()
+	for _, want := range []string{
+		"tj_buffer_bytes 123456\n",
+		"tj_buffer_segments 3\n",
+		"tj_buffer_oldest_unacked_seconds 42.5\n",
+		"tj_buffer_write_errors_total 1\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("в выводе нет %q", want)
+		}
 	}
 }

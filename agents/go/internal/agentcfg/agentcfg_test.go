@@ -159,3 +159,37 @@ func TestMissingFile(t *testing.T) {
 		t.Fatalf("ожидалась ошибка чтения файла, есть %v", err)
 	}
 }
+
+// TestBufferConfig — ключ buffer: умолчания (memory, нулевые изменения
+// поведения), разбор disk-конфига, валидация типа/минимума/диапазона fsync.
+func TestBufferConfig(t *testing.T) {
+	cfg, err := Load(minCfg(t, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Buffer.Type != "memory" || cfg.Buffer.MaxBytes != DefaultBufferMaxBytes ||
+		cfg.Buffer.FsyncMS != DefaultBufferFsyncMS || cfg.Buffer.Path != "" {
+		t.Errorf("умолчания buffer не применились: %+v", cfg.Buffer)
+	}
+
+	cfg, err = Load(minCfg(t, "buffer:\n  type: disk\n  path: 'D:\\buf'\n  max_bytes: 536870912\n  fsync_ms: 250\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Buffer.Type != "disk" || cfg.Buffer.Path != `D:\buf` ||
+		cfg.Buffer.MaxBytes != 536870912 || cfg.Buffer.FsyncMS != 250 {
+		t.Errorf("disk-конфиг не разобрался: %+v", cfg.Buffer)
+	}
+
+	for _, bad := range []struct{ yaml, wantErr string }{
+		{"buffer:\n  type: floppy\n", "buffer.type"},
+		{"buffer:\n  type: disk\n  max_bytes: 1048576\n", "buffer.max_bytes"}, // < 256 МиБ
+		{"buffer:\n  type: disk\n  fsync_ms: 0\n", "buffer.fsync_ms"},
+		{"buffer:\n  type: disk\n  fsync_ms: 99999\n", "buffer.fsync_ms"},
+		{"buffer:\n  tipe: disk\n", "tipe"}, // опечатка ключа — KnownFields
+	} {
+		if _, err := Load(minCfg(t, bad.yaml)); err == nil || !strings.Contains(err.Error(), bad.wantErr) {
+			t.Errorf("конфиг %q: ожидалась ошибка про %q, получено %v", bad.yaml, bad.wantErr, err)
+		}
+	}
+}

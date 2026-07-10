@@ -200,19 +200,41 @@ func (b *RowBuilder) Build(f parser.EventFields, datePrefix, filename, filePath 
 	}
 	r.bytes = rowFixedBytes + len(r.Event) + len(r.Level) + len(filename) + len(filePath)
 	b.scratch = parser.ScanProps(f.Body, f.PropsAt, b.scratch, func(name, value []byte, _ bool) {
-		key := b.intern(name)
-		val := string(value)
-		for i := range r.Props { // дубликат ключа: последнее значение побеждает
-			if r.Props[i].Name == key {
-				r.bytes += len(val) - len(r.Props[i].Value)
-				r.Props[i].Value = val
-				return
-			}
-		}
-		r.Props = append(r.Props, Pair{Name: key, Value: val})
-		r.bytes += len(key) + len(val)
+		b.benchProp(&r, name, value)
 	})
 	return r
+}
+
+// benchProp — одно свойство bench-пути: дубликат ключа — последнее значение
+// побеждает. Общая точка прямого пути (ScanProps) и реплея из дискового
+// буфера (BuildNDJSON) — семантика и учёт r.bytes обязаны совпадать байт-в-байт.
+func (b *RowBuilder) benchProp(r *Row, name, value []byte) {
+	key := b.intern(name)
+	val := string(value)
+	for i := range r.Props {
+		if r.Props[i].Name == key {
+			r.bytes += len(val) - len(r.Props[i].Value)
+			r.Props[i].Value = val
+			return
+		}
+	}
+	r.Props = append(r.Props, Pair{Name: key, Value: val})
+	r.bytes += len(key) + len(val)
+}
+
+// richProp — одно свойство rich-пути: горячие уходят в скретч (первое
+// вхождение), остальные — в хвост props с дубликатами. Общая точка прямого
+// пути и реплея из дискового буфера.
+func (b *RowBuilder) richProp(r *Row, name, value []byte) {
+	isHot, keep := b.hot.dispatchHot(name, value)
+	if isHot && !keep {
+		r.bytes += len(value)
+		return
+	}
+	key := b.intern(name)
+	val := string(value)
+	r.Props = append(r.Props, Pair{Name: key, Value: val})
+	r.bytes += len(key) + len(val)
 }
 
 // buildRich — маппинг продуктовой схемы (семантика импортёра, см. rich.go):
@@ -230,15 +252,7 @@ func (b *RowBuilder) buildRich(f parser.EventFields, datePrefix, filename, fileP
 	}
 	r.bytes = rowFixedBytes + len(r.Event) + len(r.Level) + len(filename) + len(filePath)
 	b.scratch = parser.ScanProps(f.Body, f.PropsAt, b.scratch, func(name, value []byte, _ bool) {
-		isHot, keep := b.hot.dispatchHot(name, value)
-		if isHot && !keep {
-			r.bytes += len(value)
-			return
-		}
-		key := b.intern(name)
-		val := string(value)
-		r.Props = append(r.Props, Pair{Name: key, Value: val})
-		r.bytes += len(key) + len(val)
+		b.richProp(&r, name, value)
 	})
 	b.hot.finalize(r.Rich, datePrefix, f.TimePart, f.Duration, filePath, b.norm, b.ctxSmart)
 	// Сырые значения горячих свойств уже учтены при dispatchHot; добавляются

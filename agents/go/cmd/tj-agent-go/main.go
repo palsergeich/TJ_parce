@@ -101,6 +101,12 @@ type config struct {
 	pollMS      int
 	idleCloseMS int
 
+	// дисковый буфер follow-режима (ADR vector §1; фаза 3.6)
+	bufferType     string // memory (по умолчанию) | disk
+	bufferPath     string // пусто → <state>\buffer
+	bufferMaxBytes int64
+	bufferFsyncMS  int
+
 	// эксплуатационный контур (стадия 2)
 	configPath  string          // --config: YAML-файл, база значений
 	inputs      []string        // каталоги ТЖ (конфиг); пусто → {input}
@@ -147,7 +153,9 @@ func usage() {
 			"  tj-agent-go --config <tj-agent.yaml> [флаги-переопределения]\n"+
 			"  tj-agent-go service install|uninstall|start|stop|run --config <path> [--name <имя службы>]\n"+
 			"Операционные флаги: --metrics <host:port> | --log-level error|info|debug | --log-file <path>\n"+
-			"                    --context-skd-smart true|false (правило СКД для context_line rich-схемы, по умолчанию true)\n")
+			"                    --context-skd-smart true|false (правило СКД для context_line rich-схемы, по умолчанию true)\n"+
+			"Дисковый буфер follow-режима (WAL): --buffer memory|disk (по умолчанию memory) | --buffer-path <dir>\n"+
+			"                    --buffer-max-bytes N (>= 268435456) | --buffer-fsync-ms N (1..60000, по умолчанию 500)\n")
 }
 
 func run(args []string) int {
@@ -221,6 +229,10 @@ func run(args []string) int {
 			LogLevel:      cfg.logLevel,
 			NoSQLNorm:     cfg.noSQLNorm,
 			NoCtxSKDSmart: !cfg.ctxSKDSmart,
+			BufferType:     cfg.bufferType,
+			BufferPath:     cfg.bufferPath,
+			BufferMaxBytes: cfg.bufferMaxBytes,
+			BufferFsyncMS:  cfg.bufferFsyncMS,
 		})
 	}
 
@@ -405,11 +417,14 @@ func run(args []string) int {
 
 func parseArgs(args []string) (config, bool) {
 	cfg := config{
-		workers:     maxInt(1, minInt(1024, numCPU())),
-		batchRows:   defaultBatchRows,
-		batchBytes:  defaultBatchBytes,
-		flushMS:     defaultFlushMS,
-		ctxSKDSmart: true,
+		workers:        maxInt(1, minInt(1024, numCPU())),
+		batchRows:      defaultBatchRows,
+		batchBytes:     defaultBatchBytes,
+		flushMS:        defaultFlushMS,
+		ctxSKDSmart:    true,
+		bufferType:     "memory",
+		bufferMaxBytes: agentcfg.DefaultBufferMaxBytes,
+		bufferFsyncMS:  agentcfg.DefaultBufferFsyncMS,
 	}
 	if len(args) == 0 {
 		usage()
@@ -623,6 +638,49 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 			}
 			cfg.ctxSKDSmart = b
 			i++
+		case "--buffer":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			if v != "memory" && v != "disk" {
+				fmt.Fprintf(os.Stderr, "Ошибка: --buffer %q (допустимо memory | disk)\n", v)
+				return cfg, false
+			}
+			cfg.bufferType = v
+			i++
+		case "--buffer-path":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			cfg.bufferPath = v
+			i++
+		case "--buffer-max-bytes":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n < agentcfg.MinBufferMaxBytes || n > 1<<40 {
+				fmt.Fprintf(os.Stderr, "Ошибка: --buffer-max-bytes должен быть целым числом от %d (256 МиБ) до 2^40\n",
+					agentcfg.MinBufferMaxBytes)
+				return cfg, false
+			}
+			cfg.bufferMaxBytes = n
+			i++
+		case "--buffer-fsync-ms":
+			v, ok := next(i, args[i])
+			if !ok {
+				return cfg, false
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 || n > 60_000 {
+				fmt.Fprintln(os.Stderr, "Ошибка: --buffer-fsync-ms должен быть целым числом от 1 до 60000")
+				return cfg, false
+			}
+			cfg.bufferFsyncMS = n
+			i++
 		default:
 			fmt.Fprintf(os.Stderr, "Ошибка: неизвестный флаг %s\n", args[i])
 			usage()
@@ -682,6 +740,11 @@ func parseFlagArgs(args []string, cfg config) (config, bool) {
 		fmt.Fprintln(os.Stderr, "Ошибка: --state/--stop-file имеют смысл только с --follow")
 		return cfg, false
 	}
+	if !cfg.follow && cfg.bufferType == "disk" {
+		// Batch-режим перечитывает архив бесплатно — его WAL не нужен и не поддержан.
+		fmt.Fprintln(os.Stderr, "Ошибка: --buffer disk имеет смысл только с --follow (batch-режим перечитывает архив сам)")
+		return cfg, false
+	}
 	return cfg, true
 }
 
@@ -739,6 +802,18 @@ func applyConfigFile(cfg config) (config, bool) {
 	}
 	if !cfg.seen["--context-skd-smart"] {
 		cfg.ctxSKDSmart = fc.ContextSKDSmart
+	}
+	if !cfg.seen["--buffer"] {
+		cfg.bufferType = fc.Buffer.Type
+	}
+	if !cfg.seen["--buffer-path"] {
+		cfg.bufferPath = fc.Buffer.Path
+	}
+	if !cfg.seen["--buffer-max-bytes"] {
+		cfg.bufferMaxBytes = fc.Buffer.MaxBytes
+	}
+	if !cfg.seen["--buffer-fsync-ms"] {
+		cfg.bufferFsyncMS = fc.Buffer.FsyncMS
 	}
 	cfg.noSQLNorm = !fc.SQLNorm // ключ только в конфиге, CLI-флага нет
 	// stop_file в конфиге опционален: остановка — Ctrl+C (консоль) либо
@@ -830,6 +905,10 @@ func runFollowFromConfigFile(cfgPath string, stopCh <-chan struct{}, defaultLogT
 		LogLevel:      fc.LogLevel,
 		NoSQLNorm:     !fc.SQLNorm,
 		NoCtxSKDSmart: !fc.ContextSKDSmart,
+		BufferType:     fc.Buffer.Type,
+		BufferPath:     fc.Buffer.Path,
+		BufferMaxBytes: fc.Buffer.MaxBytes,
+		BufferFsyncMS:  fc.Buffer.FsyncMS,
 	})
 }
 

@@ -18,12 +18,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"tjagent/internal/chsink"
+	"tjagent/internal/metrics"
+	"tjagent/internal/wal"
 )
 
 const (
@@ -65,6 +68,14 @@ type Config struct {
 	// NoCtxSKDSmart — выключить правило СКД для context_line
 	// (context_skd_smart: false; см. chsink.Config.NoCtxSKDSmart).
 	NoCtxSKDSmart bool
+
+	// Дисковый буфер (ADR vector §1; walglue.go). BufferType: "" | "memory" —
+	// сегодняшнее поведение (чекпоинт после ack ClickHouse, буфера нет);
+	// "disk" — WAL: чекпоинт после fsync, простой БД не растит память.
+	BufferType     string
+	BufferPath     string // пусто → <StateDir>\buffer
+	BufferMaxBytes int64  // 0 → 1 ГиБ (валидация минимума — agentcfg/CLI)
+	BufferFsyncMS  int    // 0 → 500 мс
 }
 
 // Уровень логирования (устанавливается Run; атомик — читают воркеры).
@@ -130,13 +141,68 @@ func Run(cfg Config) int {
 	cp := loadCheckpoints(filepath.Join(cfg.StateDir, "checkpoints.json"))
 	reg := &registry{cp: cp}
 
+	// Дисковый буфер (buffer.type=disk): открывается ДО приёмника — recovery
+	// (усечение битого хвоста, уборка подтверждённых сегментов) не зависит от
+	// доступности ClickHouse.
+	var walW *wal.WAL
+	if cfg.BufferType == "disk" {
+		dir := cfg.BufferPath
+		if dir == "" {
+			dir = filepath.Join(cfg.StateDir, "buffer")
+		}
+		maxBytes := cfg.BufferMaxBytes
+		if maxBytes <= 0 {
+			maxBytes = 1 << 30
+		}
+		segBytes := int64(0)
+		// ТЕСТОВЫЕ переопределения приёмочных сценариев (продуктовый минимум
+		// max_bytes 256 МиБ в валидации конфига НЕ ослабляется — только явная
+		// переменная окружения с громким предупреждением).
+		if v := os.Getenv("TJ_BUFFER_TEST_MAX_BYTES"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 1<<20 {
+				maxBytes = n
+				fmt.Fprintf(os.Stderr, "[follow] ВНИМАНИЕ: ТЕСТОВЫЙ режим — TJ_BUFFER_TEST_MAX_BYTES=%d переопределяет buffer.max_bytes (не для продакшена)\n", n)
+			}
+		}
+		if v := os.Getenv("TJ_BUFFER_TEST_SEGMENT_BYTES"); v != "" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 4<<10 {
+				segBytes = n
+				fmt.Fprintf(os.Stderr, "[follow] ВНИМАНИЕ: ТЕСТОВЫЙ режим — TJ_BUFFER_TEST_SEGMENT_BYTES=%d переопределяет размер сегмента (не для продакшена)\n", n)
+			}
+		}
+		var err error
+		walW, err = wal.Open(wal.Config{
+			Dir:          dir,
+			MaxBytes:     maxBytes,
+			SegmentBytes: segBytes,
+			FsyncEvery:   time.Duration(cfg.BufferFsyncMS) * time.Millisecond,
+			OnDurable:    reg.advanceDurable,
+			Logf: func(format string, a ...any) {
+				fmt.Fprintf(os.Stderr, "[follow] "+format+"\n", a...)
+			},
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка: дисковый буфер: %v\n", err)
+			return 1
+		}
+		metrics.SetBufferStatsFunc(func() (int64, int, float64) {
+			b, s, oldest := walW.Stats()
+			return b, s, oldest.Seconds()
+		})
+		defer metrics.SetBufferStatsFunc(nil)
+	}
+
+	onAck := reg.onAck
+	if walW != nil {
+		onAck = walAck(walW) // чекпоинты ТЖ двигает fsync буфера (OnDurable)
+	}
 	sink, err := chsink.Open(context.Background(), chsink.Config{
 		DSN:           cfg.DSN,
 		BatchRows:     cfg.BatchRows,
 		BatchBytes:    cfg.BatchBytes,
 		Flush:         time.Duration(cfg.FlushMS) * time.Millisecond,
 		Retry:         true,
-		OnAck:         reg.onAck,
+		OnAck:         onAck,
 		NoSQLNorm:     cfg.NoSQLNorm,
 		NoCtxSKDSmart: cfg.NoCtxSKDSmart,
 	})
@@ -166,10 +232,23 @@ func Run(cfg Config) int {
 			st:        st,
 			idleClose: idle,
 			poll:      pollDur,
+			wal:       walW,
 		}
 		workers[i] = w
 		wg.Add(1)
 		go func() { defer wg.Done(); w.run() }()
+	}
+
+	// Дренер буфера — единственный читатель WAL (walglue.go).
+	drainDone := make(chan struct{})
+	if walW != nil {
+		builder := chsink.NewRowBuilder(sink.RichSchema(), sink.SQLNorm(), sink.CtxSKDSmart())
+		go func() {
+			defer close(drainDone)
+			drainWAL(walW, sink, builder, stop)
+		}()
+	} else {
+		close(drainDone)
 	}
 
 	// Сейвер чекпоинтов: атомарная перезапись раз в saverPeriod при изменениях.
@@ -200,8 +279,14 @@ func Run(cfg Config) int {
 				return
 			case <-t.C:
 				files, lag := reg.lag()
-				infof("[follow] файлов: %d | событий: %d | вставлено: %d | отставание: %d Б | idle-закрытий: %d\n",
-					files, st.events.Load(), sink.Inserted(), lag, st.idleCloses.Load())
+				bufNote := ""
+				if walW != nil {
+					b, s, oldest := walW.Stats()
+					bufNote = fmt.Sprintf(" | буфер: %d сегм / %.1f МиБ / oldest %.0f с",
+						s, float64(b)/(1<<20), oldest.Seconds())
+				}
+				infof("[follow] файлов: %d | событий: %d | вставлено: %d | отставание: %d Б | idle-закрытий: %d%s\n",
+					files, st.events.Load(), sink.Inserted(), lag, st.idleCloses.Load(), bufNote)
 			}
 		}
 	}()
@@ -229,12 +314,35 @@ func Run(cfg Config) int {
 		return false
 	}
 
+	// Жёсткая остановка по фатальной ошибке буфера (принцип Vector — не
+	// продолжать молча): состояние восстановимо как после kill -9 — чекпоинты
+	// не продвинуты за durable-данные, потерь нет.
+	walFatal := func() bool {
+		if walW == nil {
+			return false
+		}
+		select {
+		case <-walW.Fatal():
+			return true
+		default:
+			return false
+		}
+	}
+	hardStop := func() int {
+		fmt.Fprintf(os.Stderr, "ОШИБКА ДИСКОВОГО БУФЕРА: %v\n", walW.FatalErr())
+		fmt.Fprintln(os.Stderr, "Агент жёстко останавливается (exit 3): продолжать без исправного буфера нельзя — чекпоинты не продвинуты за durable-данные, потерь нет. Проверьте носитель/каталог буфера и перезапустите агент.")
+		return walExitCode
+	}
+
 	// Цикл обнаружения: первый проход обрабатывает существующие файлы
 	// (с учётом чекпоинтов), дальше — непрерывный tail. Он же следит за
 	// сигналом остановки (латентность ≤ poll + время обхода; сон прерывается
 	// StopCh — стоп службы не ждёт полный poll).
 	d := &discovery{reg: reg, workers: workers, roots: roots, entries: map[string]*dEntry{}}
 	for !stopRequested() {
+		if walFatal() {
+			return hardStop()
+		}
 		d.walk()
 		if stopRequested() {
 			break
@@ -250,22 +358,48 @@ func Run(cfg Config) int {
 	}
 
 	infof("[follow] получен сигнал остановки (%s) — graceful-останов\n", stopReason)
-	sink.SetDraining() // до close(stop): воркеры могут стоять в In() на ретраях
+	sink.SetDraining() // до close(stop): воркеры/дренер могут стоять в In() на ретраях
+	if walW != nil {
+		walW.BeginShutdown() // отпустить воркеров, заблокированных на полном буфере
+	}
 	close(stop)
-	wg.Wait()               // воркеры: дренаж \n-терминированных pending + финальные слабы
+	wg.Wait() // воркеры: дренаж \n-терминированных pending + финальные слабы/кадры
+	if walW != nil {
+		// Финальный fsync: события graceful-дренажа durable, их чекпоинты
+		// продвинуты. Остаток буфера доставится при следующем запуске.
+		_ = walW.CloseWriter() // ошибка уже в Fatal() — проверка ниже
+	}
+	<-drainDone             // дренер: последний слаб отправлен
 	insErr := sink.Finish() // финальный flush недобранного батча (с ретраями)
+	if walW != nil {
+		walW.Close()
+	}
 	<-saverDone
 	<-progDone
 	if err := reg.save(); err != nil { // финальный чекпоинт после всех ack'ов
 		fmt.Fprintf(os.Stderr, "Ошибка записи чекпоинтов: %v\n", err)
 	}
+	if walFatal() {
+		return hardStop()
+	}
 
 	files, lag := reg.lag()
-	infof("[follow] итог: файлов: %d | событий: %d | вставлено: %d | parse_skips: %d | прочитано: %d Б | остаток (не прочитано): %d Б\n",
-		files, st.events.Load(), sink.Inserted(), st.parseSkips.Load(), st.bytes.Load(), lag)
-	writeStatsJSON(cfg, st, reg, sink)
+	bufNote := ""
+	if walW != nil {
+		b, s, _ := walW.Stats()
+		bufNote = fmt.Sprintf(" | остаток буфера: %d сегм / %d Б", s, b)
+	}
+	infof("[follow] итог: файлов: %d | событий: %d | вставлено: %d | parse_skips: %d | прочитано: %d Б | остаток (не прочитано): %d Б%s\n",
+		files, st.events.Load(), sink.Inserted(), st.parseSkips.Load(), st.bytes.Load(), lag, bufNote)
+	writeStatsJSON(cfg, st, reg, sink, walW)
 
 	if insErr != nil {
+		if walW != nil {
+			// Неподтверждённый остаток durable в буфере: курсор не продвинут,
+			// при следующем запуске он доставится — стоп успешен без потерь.
+			fmt.Fprintf(os.Stderr, "[follow] финальный flush не подтверждён (%v) — остаток сохранён в дисковом буфере и будет доставлен при следующем запуске\n", insErr)
+			return 0
+		}
 		fmt.Fprintf(os.Stderr, "ОШИБКА: финальный flush не подтверждён: %v\n", insErr)
 		fmt.Fprintln(os.Stderr, "Чекпоинты не продвинуты за неподтверждённые данные — при следующем запуске они перечитаются (потерь нет)")
 		return 1
@@ -279,7 +413,7 @@ func fileExists(path string) bool {
 }
 
 // writeStatsJSON — контракт bakeoff-protocol §3 (batch-поля) + follow-поля.
-func writeStatsJSON(cfg Config, st *stats, reg *registry, sink *chsink.Sink) {
+func writeStatsJSON(cfg Config, st *stats, reg *registry, sink *chsink.Sink, walW *wal.WAL) {
 	if cfg.StatsJSON == "" {
 		return
 	}
@@ -296,6 +430,11 @@ func writeStatsJSON(cfg Config, st *stats, reg *registry, sink *chsink.Sink) {
 		"idle_closes":      st.idleCloses.Load(),
 		"truncates":        st.truncates.Load(),
 		"lag_bytes":        uint64(lag),
+	}
+	if walW != nil {
+		b, s, _ := walW.Stats()
+		obj["buffer_bytes"] = uint64(b)
+		obj["buffer_segments"] = uint64(s)
 	}
 	b, _ := json.Marshal(obj)
 	if err := os.WriteFile(cfg.StatsJSON, append(b, '\n'), 0o644); err != nil {

@@ -55,6 +55,13 @@ type Config struct {
 	// По умолчанию включена; false — всегда последняя непустая строка.
 	ContextSKDSmart bool `yaml:"context_skd_smart"`
 
+	// Buffer — буфер конвейера follow-режима между разбором и вставкой
+	// (ADR docs/adr-vector.md §1). type=memory (по умолчанию) — поведение
+	// без буфера: чекпоинт ТЖ двигается после подтверждения ClickHouse.
+	// type=disk — WAL: чекпоинт двигается после fsync события в буфер,
+	// агент переживает простой БД без роста памяти и без остановки чтения.
+	Buffer BufferCfg `yaml:"buffer"`
+
 	// Metrics — адрес /metrics (host:port или :port); пусто — endpoint выключен.
 	Metrics string `yaml:"metrics"`
 	// LogLevel — error | info | debug.
@@ -67,6 +74,22 @@ type Config struct {
 	StatsJSON string `yaml:"stats_json"`
 }
 
+// BufferCfg — параметры буфера follow-конвейера (ключ buffer).
+type BufferCfg struct {
+	// Type — memory (по умолчанию; сегодняшнее поведение, нулевые изменения)
+	// | disk (WAL: сегменты в Path, чекпоинт ТЖ после fsync).
+	Type string `yaml:"type"`
+	// Path — каталог сегментов; пусто → <state_dir>\buffer.
+	Path string `yaml:"path"`
+	// MaxBytes — жёсткий предел суммарного размера буфера (when_full=block:
+	// достигнут — чтение ТЖ встаёт на backpressure, ТЖ-файлы — внешний WAL).
+	// Минимум 256 МиБ (MinBufferMaxBytes).
+	MaxBytes int64 `yaml:"max_bytes"`
+	// FsyncMS — период группового fsync, мс (1..60000; чекпоинт ТЖ двигается
+	// только за fsync'нутые события).
+	FsyncMS int `yaml:"fsync_ms"`
+}
+
 // Значения по умолчанию (совпадают с CLI-умолчаниями follow-режима).
 const (
 	DefaultPollMS      = 500
@@ -74,6 +97,13 @@ const (
 	DefaultFlushMS     = 1000
 	DefaultBatchRows   = 50000
 	DefaultBatchBytes  = 64 << 20
+
+	// DefaultBufferMaxBytes — предел дискового буфера по умолчанию (1 ГиБ).
+	DefaultBufferMaxBytes = int64(1) << 30
+	// MinBufferMaxBytes — продуктовый минимум max_bytes (256 МиБ, ADR §1).
+	MinBufferMaxBytes = int64(256) << 20
+	// DefaultBufferFsyncMS — период группового fsync по умолчанию (≤500 мс).
+	DefaultBufferFsyncMS = 500
 )
 
 // Default — конфигурация со значениями по умолчанию (без обязательных полей).
@@ -95,6 +125,11 @@ func Default() Config {
 		SQLNorm:         true,
 		ContextSKDSmart: true,
 		LogLevel:        "info",
+		Buffer: BufferCfg{
+			Type:     "memory",
+			MaxBytes: DefaultBufferMaxBytes,
+			FsyncMS:  DefaultBufferFsyncMS,
+		},
 	}
 }
 
@@ -164,6 +199,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Threads < 1 || c.Threads > 1024 {
 		return fmt.Errorf("поле 'threads': %d вне диапазона 1..1024", c.Threads)
+	}
+	switch c.Buffer.Type {
+	case "memory", "disk":
+	default:
+		return fmt.Errorf("поле 'buffer.type': %q (допустимо memory | disk)", c.Buffer.Type)
+	}
+	if c.Buffer.MaxBytes < MinBufferMaxBytes || c.Buffer.MaxBytes > 1<<40 {
+		return fmt.Errorf("поле 'buffer.max_bytes': %d вне диапазона %d..2^40 (минимум 256 МиБ)",
+			c.Buffer.MaxBytes, MinBufferMaxBytes)
+	}
+	if c.Buffer.FsyncMS < 1 || c.Buffer.FsyncMS > 60_000 {
+		return fmt.Errorf("поле 'buffer.fsync_ms': %d вне диапазона 1..60000", c.Buffer.FsyncMS)
 	}
 	if c.Metrics != "" {
 		if _, _, err := net.SplitHostPort(c.Metrics); err != nil {

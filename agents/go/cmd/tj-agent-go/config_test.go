@@ -186,3 +186,61 @@ func TestBadConfigFails(t *testing.T) {
 		t.Error("битый конфиг должен отвергаться")
 	}
 }
+
+// TestBufferFlagsPrecedence — buffer из конфига, CLI-флаги перекрывают;
+// --buffer disk без --follow — ошибка (batch-режиму WAL не нужен).
+func TestBufferFlagsPrecedence(t *testing.T) {
+	cfgPath, _ := writeYAML(t,
+		"buffer:", "  type: disk", "  path: 'D:/buf'", "  max_bytes: 536870912", "  fsync_ms: 200")
+	cfg, ok := parseArgs([]string{"--config", cfgPath})
+	if !ok {
+		t.Fatal("parseArgs не принял --config")
+	}
+	cfg, ok = applyConfigFile(cfg)
+	if !ok {
+		t.Fatal("applyConfigFile не принял валидный конфиг")
+	}
+	if cfg.bufferType != "disk" || cfg.bufferPath != "D:/buf" ||
+		cfg.bufferMaxBytes != 536870912 || cfg.bufferFsyncMS != 200 {
+		t.Errorf("buffer из конфига не применился: %+v", cfg)
+	}
+
+	cfg, ok = parseArgs([]string{"--config", cfgPath,
+		"--buffer", "memory", "--buffer-max-bytes", "268435456", "--buffer-fsync-ms", "900"})
+	if !ok {
+		t.Fatal("parseArgs не принял флаги буфера")
+	}
+	cfg, ok = applyConfigFile(cfg)
+	if !ok {
+		t.Fatal("applyConfigFile не принял конфиг с переопределениями")
+	}
+	if cfg.bufferType != "memory" || cfg.bufferMaxBytes != 268435456 || cfg.bufferFsyncMS != 900 {
+		t.Errorf("CLI-переопределения буфера не сработали: %+v", cfg)
+	}
+	if cfg.bufferPath != "D:/buf" {
+		t.Errorf("не переопределённый buffer.path должен остаться из конфига: %q", cfg.bufferPath)
+	}
+
+	if _, ok := parseArgs([]string{"--input", t.TempDir(), "--sink", "null", "--buffer", "disk"}); ok {
+		t.Error("--buffer disk без --follow обязан отклоняться")
+	}
+	if _, ok := parseArgs([]string{"--buffer", "floppy"}); ok {
+		t.Error("--buffer floppy обязан отклоняться")
+	}
+	if _, ok := parseArgs([]string{"--buffer-max-bytes", "1048576"}); ok {
+		t.Error("--buffer-max-bytes ниже минимума 256 МиБ обязан отклоняться")
+	}
+}
+
+// TestFollowDefaultBufferMemory — follow-контракт bake-off без флагов буфера:
+// buffer=memory (сегодняшнее поведение, ноль изменений).
+func TestFollowDefaultBufferMemory(t *testing.T) {
+	cfg, ok := parseArgs([]string{"--follow", "--input", t.TempDir(), "--sink", "clickhouse",
+		"--state", t.TempDir(), "--stop-file", "s.flag"})
+	if !ok {
+		t.Fatal("parseArgs не принял follow-контракт")
+	}
+	if cfg.bufferType != "memory" {
+		t.Errorf("буфер по умолчанию обязан быть memory, есть %q", cfg.bufferType)
+	}
+}
