@@ -33,9 +33,11 @@ type benchCols struct {
 	filename proto.ColStr
 	filePath proto.ColStr
 
-	propsKeys *proto.ColLowCardinality[string]
-	propsVals proto.ColStr
-	propsOffs proto.ColUInt64
+	propsKeys     *proto.ColLowCardinality[string]
+	propsVals     proto.ColStr    // элементы Array(String) значений props
+	propsValsOffs proto.ColUInt64 // оффсеты Array(String) значений props
+	propsOffs     proto.ColUInt64 // оффсеты самой Map
+	propsUsed     []bool          // скретч группировки повторов (§4.5 rev 4)
 }
 
 func newBenchCols() *benchCols {
@@ -54,11 +56,7 @@ func (c *benchCols) appendRow(r *Row) {
 	c.level.Append(r.Level)
 	c.filename.Append(r.Filename)
 	c.filePath.Append(r.FilePath)
-	for i := range r.Props {
-		c.propsKeys.Append(r.Props[i].Name)
-		c.propsVals.Append(r.Props[i].Value)
-	}
-	c.propsOffs.Append(uint64(c.propsKeys.Rows()))
+	c.appendProps(r.Props)
 }
 
 func (c *benchCols) rows() int { return c.ts.Rows() }
@@ -68,13 +66,16 @@ func (c *benchCols) input() proto.Input {
 		{Name: "timestamp", Data: c.ts},
 		{Name: "duration", Data: &c.duration},
 		{Name: "event", Data: c.event},
-		{Name: "level", Data: c.level},
+		{Name: "level_num", Data: c.level},
 		{Name: "filename", Data: &c.filename},
 		{Name: "file_path", Data: &c.filePath},
-		{Name: "props", Data: &proto.ColMap[string, string]{
+		{Name: "props", Data: &proto.ColMap[string, []string]{
 			Offsets: c.propsOffs,
 			Keys:    c.propsKeys,
-			Values:  &c.propsVals,
+			Values: &proto.ColArr[string]{
+				Offsets: c.propsValsOffs,
+				Data:    &c.propsVals,
+			},
 		}},
 	}
 }
@@ -89,10 +90,11 @@ func (c *benchCols) reset() {
 	c.propsKeys.Reset()
 	c.propsVals.Reset()
 	c.propsOffs = c.propsOffs[:0]
+	c.propsValsOffs = c.propsValsOffs[:0]
 }
 
 // benchInsertColumns — список колонок INSERT (порядок = input()).
-const benchInsertColumns = "(timestamp, duration, event, level, filename, file_path, props)"
+const benchInsertColumns = "(timestamp, duration, event, level_num, filename, file_path, props)"
 
 // ----------------------------------------------------------------- rich ---
 
@@ -103,7 +105,8 @@ type richCols struct {
 	ts         *proto.ColDateTime64
 	durationUs proto.ColUInt64
 	event      *proto.ColLowCardinality[string]
-	level      *proto.ColLowCardinality[string]
+	level      *proto.ColLowCardinality[string] // level_num: важность из заголовка
+	levelText  *proto.ColLowCardinality[string] // level: текстовый уровень из свойства
 	collection *proto.ColLowCardinality[string]
 	srcFile    *proto.ColLowCardinality[string]
 	srcPath    proto.ColStr
@@ -162,9 +165,11 @@ type richCols struct {
 	locksDump     proto.ColStr
 	deadlockGraph proto.ColStr
 
-	propsKeys *proto.ColLowCardinality[string]
-	propsVals proto.ColStr
-	propsOffs proto.ColUInt64
+	propsKeys     *proto.ColLowCardinality[string]
+	propsVals     proto.ColStr
+	propsValsOffs proto.ColUInt64 // оффсеты Array(String) значений props
+	propsOffs     proto.ColUInt64 // оффсеты самой Map
+	propsUsed     []bool          // скретч группировки повторов (§4.5 rev 4)
 }
 
 func newRichCols(withNorm bool) *richCols {
@@ -176,6 +181,7 @@ func newRichCols(withNorm bool) *richCols {
 		ts:           (&proto.ColDateTime64{}).WithPrecision(proto.PrecisionMicro).WithLocation(time.UTC),
 		event:        lc(),
 		level:        lc(),
+		levelText:    lc(),
 		collection:   lc(),
 		srcFile:      lc(),
 		process:      lc(),
@@ -202,6 +208,7 @@ func (c *richCols) appendRow(r *Row) {
 	c.durationUs.Append(x.DurationUs)
 	c.event.Append(r.Event)
 	c.level.Append(r.Level)
+	c.levelText.Append(x.LevelText)
 	c.collection.Append(x.Collection)
 	c.srcFile.Append(r.Filename)
 	c.srcPath.Append(r.FilePath)
@@ -262,11 +269,7 @@ func (c *richCols) appendRow(r *Row) {
 	c.locksDump.Append(x.LocksDump)
 	c.deadlockGraph.Append(x.DeadlockGraph)
 
-	for i := range r.Props {
-		c.propsKeys.Append(r.Props[i].Name)
-		c.propsVals.Append(r.Props[i].Value)
-	}
-	c.propsOffs.Append(uint64(c.propsKeys.Rows()))
+	c.appendProps(r.Props)
 }
 
 func (c *richCols) rows() int { return c.ts.Rows() }
@@ -276,7 +279,8 @@ func (c *richCols) input() proto.Input {
 		{Name: "ts", Data: c.ts},
 		{Name: "duration_us", Data: &c.durationUs},
 		{Name: "event", Data: c.event},
-		{Name: "level", Data: c.level},
+		{Name: "level_num", Data: c.level},
+		{Name: "level", Data: c.levelText},
 		{Name: "collection", Data: c.collection},
 		{Name: "src_file", Data: c.srcFile},
 		{Name: "src_path", Data: &c.srcPath},
@@ -322,10 +326,13 @@ func (c *richCols) input() proto.Input {
 		}},
 		{Name: "locks_dump", Data: &c.locksDump},
 		{Name: "deadlock_graph", Data: &c.deadlockGraph},
-		{Name: "props", Data: &proto.ColMap[string, string]{
+		{Name: "props", Data: &proto.ColMap[string, []string]{
 			Offsets: c.propsOffs,
 			Keys:    c.propsKeys,
-			Values:  &c.propsVals,
+			Values: &proto.ColArr[string]{
+				Offsets: c.propsValsOffs,
+				Data:    &c.propsVals,
+			},
 		}},
 	}
 	if c.withNorm {
@@ -346,6 +353,7 @@ func (c *richCols) reset() {
 	c.durationUs = c.durationUs[:0]
 	c.event.Reset()
 	c.level.Reset()
+	c.levelText.Reset()
 	c.collection.Reset()
 	c.srcFile.Reset()
 	c.srcPath.Reset()
@@ -392,6 +400,7 @@ func (c *richCols) reset() {
 	c.propsKeys.Reset()
 	c.propsVals.Reset()
 	c.propsOffs = c.propsOffs[:0]
+	c.propsValsOffs = c.propsValsOffs[:0]
 	c.sqlNormHash = c.sqlNormHash[:0]
 	c.paramCount = c.paramCount[:0]
 	c.sqlParamsData.Reset()
@@ -402,7 +411,7 @@ func (c *richCols) reset() {
 // дописывает колонки нормализации SQL (002_sql_norm.sql); без него INSERT
 // совместим с tj.events до миграции.
 func richInsertColumns(withNorm bool) string {
-	cols := "(ts, duration_us, event, level, collection, src_file, src_path, src_line, " +
+	cols := "(ts, duration_us, event, level_num, level, collection, src_file, src_path, src_line, " +
 		"process, process_name, os_thread, client_id, connect_id, session_id, usr, " +
 		"app_name, computer_name, app_id, " +
 		"dbms, db_name, db_pid, trans, rows_ret, rows_affected, " +
@@ -414,4 +423,42 @@ func richInsertColumns(withNorm bool) string {
 		cols += ", sql_norm_hash, param_count, sql_params"
 	}
 	return cols + ")"
+}
+
+// appendPropsMap выкладывает свойства события в Map(String, Array(String)):
+// ключ появляется один раз, в порядке первого вхождения, значение — массив
+// всех его вхождений в порядке события (§4.5 rev 4). Повтор ключа редок,
+// поэтому группировка делается сравнением имён на месте: ни карты, ни
+// аллокаций после прогрева скретча.
+func appendPropsMap(props Props, keys *proto.ColLowCardinality[string],
+	vals *proto.ColStr, valsOffs *proto.ColUInt64, offs *proto.ColUInt64, used *[]bool) {
+	u := (*used)[:0]
+	for range props {
+		u = append(u, false)
+	}
+	for i := range props {
+		if u[i] {
+			continue
+		}
+		u[i] = true
+		keys.Append(props[i].Name)
+		vals.Append(props[i].Value)
+		for j := i + 1; j < len(props); j++ {
+			if !u[j] && props[j].Name == props[i].Name {
+				u[j] = true
+				vals.Append(props[j].Value)
+			}
+		}
+		valsOffs.Append(uint64(vals.Rows()))
+	}
+	*used = u
+	offs.Append(uint64(keys.Rows()))
+}
+
+func (c *benchCols) appendProps(props Props) {
+	appendPropsMap(props, c.propsKeys, &c.propsVals, &c.propsValsOffs, &c.propsOffs, &c.propsUsed)
+}
+
+func (c *richCols) appendProps(props Props) {
+	appendPropsMap(props, c.propsKeys, &c.propsVals, &c.propsValsOffs, &c.propsOffs, &c.propsUsed)
 }

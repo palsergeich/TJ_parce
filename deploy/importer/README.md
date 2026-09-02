@@ -39,7 +39,8 @@ KI-7 format-spec) срезается на лету.
 |---|---|---|
 | `timestamp` | `ts` | `parseDateTime64BestEffort`; пустой/деградированный (`MM:SS.ssssss`) → эпоха `1970-01-01` |
 | `duration` | `duration_us` | |
-| `event`, `level` | `event`, `level` | `level` в источнике число или строка — приводится к строке |
+| `event`, `level_num` | `event`, `level_num` | `level_num` — важность из заголовка ТЖ, в источнике число или строка, приводится к строке |
+| `level` | `level` | Текстовый уровень из СВОЙСТВА события (`level=INFO`). До rev 4 схлопывался с полем заголовка и терялся |
 | `file_path` | `collection`, `src_path` | `collection` = первый сегмент пути (`\` и `/`) |
 | `filename` | `src_file` | `src_line` всегда 0 (см. ограничения) |
 | `process`, `p:processName`, `OSThread` | `process`, `process_name`, `os_thread` | |
@@ -54,7 +55,7 @@ KI-7 format-spec) срезается на лету.
 | `Descr` \| `Txt` \| `txt` (первый непустой) | `descr` | |
 | `Exception` | `exception` | |
 | `Regions`, `WaitConnections`, `Locks`, `DeadlockConnectionIntersections` | `lock_regions`, `lock_wait_conns`, `locks_dump`, `deadlock_graph` | `WaitConnections`: список через запятую → `Array(UInt32)`, нет → `[]` |
-| всё остальное | `props` | Map «как есть» (например, `Interface`, `Method`, `CallID`, `first`, `DstClientID`) |
+| всё остальное | `props` | `Map(String, Array(String))`: значение — все вхождения ключа в порядке события. Одиночное свойство читается как `props['Interface'][1]` |
 
 ## Известные ограничения
 
@@ -70,8 +71,12 @@ KI-7 format-spec) срезается на лету.
   будет удалён сразу после вставки (парты дропаются целиком). Перед импортом
   исторических коллекций расширьте TTL:
   `ALTER TABLE tj.events MODIFY TTL toDateTime(ts) + INTERVAL 3650 DAY DELETE`.
-- Дублирующиеся ключи в одной записи (KI-4 format-spec): в колонки и `props`
-  попадает первое значение, а не последнее.
+- Повторяющиеся ключи (format-spec §4.5 rev 4, KI-4 закрыт): приезжают
+  JSON-массивом. В скалярную колонку попадает **последнее** вхождение, а все
+  вхождения целиком сохраняются в `props` (`Map(String, Array(String))`) —
+  включая повторившиеся горячие ключи, иначе значение терялось бы без следа.
+  До rev 4 здесь побеждало первое: `Func=Transaction,Func=CommitTransaction`
+  давал в колонке `Transaction`, и признак commit/rollback пропадал.
 - Файл импортируется одним `INSERT`: при ошибке посреди файла возможна
   частичная вставка без отката — перезапуск после `TRUNCATE`/удаления
   затронутых партиций.

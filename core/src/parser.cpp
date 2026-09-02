@@ -5,6 +5,8 @@
 // множеству принятых событий или по правилам кавычек.
 #include "parser.hpp"
 
+#include <vector>
+
 namespace tj {
 namespace parse {
 
@@ -286,16 +288,99 @@ inline void append_props_impl(Policy& pol, const char* ev, std::size_t p, std::s
     }
 }
 
+// След одного поля в буфере вывода (§4.5 rev 4).
+struct NdRef {
+    std::size_t key_off, val_off, end_off;
+    const char* name_b;
+    std::size_t name_n;
+};
+
+// Сигнатура имени за O(1): длина + первый/последний/средний байт. Совпадение
+// сигнатур не означает совпадения имён — по хиту запускается точная сверка.
+inline std::uint32_t name_sig(const char* n, std::size_t l) {
+    if (l == 0) return 1;
+    return static_cast<std::uint32_t>(l) << 24 |
+           static_cast<std::uint32_t>(static_cast<unsigned char>(n[0])) << 16 |
+           static_cast<std::uint32_t>(static_cast<unsigned char>(n[l - 1])) << 8 |
+           static_cast<std::uint32_t>(static_cast<unsigned char>(n[l >> 1]));
+}
+
+// NdScratch — состояние разбора события, переиспользуемое между событиями.
+// Таблица сигнатур даёт O(N)-обнаружение повтора ключа; поколение gen заменяет
+// обнуление (честная попарная сверка имён стоила бы ~20% пропускной способности).
+struct NdScratch {
+    static constexpr std::size_t kSlots = 128;
+    std::vector<NdRef> refs;
+    std::uint32_t tbl[kSlots] = {};
+    std::uint32_t stamp[kSlots] = {};
+    std::uint32_t gen = 0;
+    bool dup = false;
+
+    void begin_event() {
+        dup = false;
+        if (++gen == 0) {
+            for (std::size_t i = 0; i < kSlots; ++i) stamp[i] = 0;
+            gen = 1;
+        }
+    }
+    void note(const char* n, std::size_t l) {
+        std::uint32_t h = name_sig(n, l);
+        std::size_t slot = h & (kSlots - 1);
+        for (;;) {
+            if (stamp[slot] != gen) {
+                stamp[slot] = gen;
+                tbl[slot] = h;
+                return;
+            }
+            if (tbl[slot] == h) {
+                dup = true;
+                return;
+            }
+            slot = (slot + 1) & (kSlots - 1);
+        }
+    }
+};
+
 // Политика NDJSON: побайтно повторяет историческую эмиссию (golden-гейт
 // сравнивает вывод с эталоном побайтно).
 struct NdjsonProps {
     std::string& dst;
+    // §4.5 rev 4: след каждого свойства в dst. Горячий путь только пишет
+    // смещения; перегруппировка в массив — в finish() и только если повтор
+    // ключа реально был. Буфер thread_local, чтобы не аллоцировать на событие.
+    using Ref = NdRef;
+    std::size_t props_start;
+    NdScratch& sc;
+    std::vector<NdRef>& refs;
+
+    NdjsonProps(std::string& d, NdScratch& scratch, std::size_t body_start)
+        : dst(d), props_start(body_start), sc(scratch), refs(scratch.refs) {
+        refs.clear();
+        sc.begin_event();
+    }
+
     void key(const char* s, std::size_t n) {
+        sc.note(s, n);
+        Ref r{dst.size() + 1, 0, 0, s, n}; // key_off — на кавычку имени, без ','
         dst.append(",\"", 2);
         append_escaped(dst, s, n);
         dst.append("\":", 2);
+        r.val_off = dst.size();
+        refs.push_back(r);
     }
-    void empty_value() { dst.append("\"\"", 2); }
+
+    // add_header — поле заголовка участвует в перегруппировке наравне со
+    // свойствами: свойство с именем поля заголовка обязано слиться с ним в
+    // массив (§4.5 п.3), а не дать второй одноимённый ключ.
+    void add_header(const char* nm, std::size_t nm_n, std::size_t key_off,
+                    std::size_t val_off, std::size_t end_off) {
+        sc.note(nm, nm_n);
+        refs.push_back(Ref{key_off, val_off, end_off, nm, nm_n});
+    }
+    void empty_value() {
+        dst.append("\"\"", 2);
+        refs.back().end_off = dst.size();
+    }
     void val_begin() { dst.push_back('"'); }
     void val_raw(const char* s, std::size_t n) { append_escaped(dst, s, n); }
     void val_quote(char c) {
@@ -305,7 +390,10 @@ struct NdjsonProps {
             dst.push_back(c);
         }
     }
-    void val_end() { dst.push_back('"'); }
+    void val_end() {
+        dst.push_back('"');
+        refs.back().end_off = dst.size();
+    }
     void val_unquoted(const char* name, std::size_t name_n, const char* v, std::size_t n) {
         // Число по строгой грамматике, кроме always-string полей (§4.2).
         if (!is_always_string_field(name, name_n) && is_number_token(v, n)) {
@@ -314,6 +402,60 @@ struct NdjsonProps {
             dst.push_back('"');
             append_escaped(dst, v, n);
             dst.push_back('"');
+        }
+        refs.back().end_off = dst.size();
+    }
+
+    bool same_name(const Ref& a, const Ref& b) const {
+        return a.name_n == b.name_n && std::memcmp(a.name_b, b.name_b, a.name_n) == 0;
+    }
+
+    // finish — §4.5 rev 4: ключ, встретившийся больше одного раза, становится
+    // JSON-массивом своих значений в порядке источника; одиночный остаётся
+    // скаляром. Порядок ключей — по первому вхождению.
+    void finish() {
+        if (refs.size() < 2 || !sc.dup) return;
+        bool repeated = false;
+        for (std::size_t i = 1; i < refs.size() && !repeated; ++i) {
+            for (std::size_t j = 0; j < i; ++j) {
+                if (same_name(refs[i], refs[j])) { repeated = true; break; }
+            }
+        }
+        if (!repeated) return;
+
+        // Область свойств переписывается целиком: исходные байты лежат в том
+        // же dst, который мы усекаем, поэтому сначала копия.
+        std::string src(dst, props_start, dst.size() - props_start);
+        dst.resize(props_start);
+        std::vector<char> done(refs.size(), 0);
+        bool first = true;
+        for (std::size_t i = 0; i < refs.size(); ++i) {
+            if (done[i]) continue;
+            done[i] = 1;
+            std::size_t cnt = 1;
+            for (std::size_t j = i + 1; j < refs.size(); ++j) {
+                if (!done[j] && same_name(refs[i], refs[j])) ++cnt;
+            }
+            if (!first) dst.push_back(',');
+            first = false;
+            if (cnt == 1) {
+                dst.append(src, refs[i].key_off - props_start,
+                           refs[i].end_off - refs[i].key_off);
+                continue;
+            }
+            dst.append(src, refs[i].key_off - props_start,
+                       refs[i].val_off - refs[i].key_off);
+            dst.push_back('[');
+            dst.append(src, refs[i].val_off - props_start,
+                       refs[i].end_off - refs[i].val_off);
+            for (std::size_t j = i + 1; j < refs.size(); ++j) {
+                if (done[j] || !same_name(refs[i], refs[j])) continue;
+                done[j] = 1;
+                dst.push_back(',');
+                dst.append(src, refs[j].val_off - props_start,
+                           refs[j].end_off - refs[j].val_off);
+            }
+            dst.push_back(']');
         }
     }
 };
@@ -357,18 +499,44 @@ inline std::int64_t days_from_civil(std::int64_t y, unsigned m, unsigned d) {
 struct RbProps {
     RowBinaryCtx& ctx;
     std::uint64_t count = 0;
-    void key(const char* s, std::size_t n) {
-        ++count;
-        append_rb_string(ctx.pairs, s, n);
+    RbProps(RowBinaryCtx& c) : ctx(c) {
+        ctx.prop_names.clear();
+        ctx.prop_vals.clear();
     }
-    void empty_value() { append_varint(ctx.pairs, 0); }
+    void key(const char* s, std::size_t n) { ctx.prop_names.emplace_back(s, n); }
+    void empty_value() { ctx.prop_vals.emplace_back(); }
     void val_begin() { ctx.val.clear(); }
     void val_raw(const char* s, std::size_t n) { ctx.val.append(s, n); }
     void val_quote(char c) { ctx.val.push_back(c); }
-    void val_end() { append_rb_string(ctx.pairs, ctx.val.data(), ctx.val.size()); }
+    void val_end() { ctx.prop_vals.push_back(ctx.val); }
     void val_unquoted(const char*, std::size_t, const char* v, std::size_t n) {
         // В ClickHouse значения свойств — всегда текст: сырой токен как есть.
-        append_rb_string(ctx.pairs, v, n);
+        ctx.prop_vals.emplace_back(v, n);
+    }
+
+    // finish — §4.5 rev 4: props имеет тип Map(String, Array(String)), ключ
+    // встречается один раз (по первому вхождению), значение — массив всех его
+    // вхождений в порядке события.
+    void finish() {
+        const std::size_t m = ctx.prop_names.size();
+        std::vector<char> done(m, 0);
+        for (std::size_t i = 0; i < m; ++i) {
+            if (done[i]) continue;
+            done[i] = 1;
+            ++count;
+            append_rb_string(ctx.pairs, ctx.prop_names[i].data(), ctx.prop_names[i].size());
+            std::uint64_t n_vals = 1;
+            for (std::size_t j = i + 1; j < m; ++j) {
+                if (!done[j] && ctx.prop_names[j] == ctx.prop_names[i]) ++n_vals;
+            }
+            append_varint(ctx.pairs, n_vals);
+            append_rb_string(ctx.pairs, ctx.prop_vals[i].data(), ctx.prop_vals[i].size());
+            for (std::size_t j = i + 1; j < m; ++j) {
+                if (done[j] || ctx.prop_names[j] != ctx.prop_names[i]) continue;
+                done[j] = 1;
+                append_rb_string(ctx.pairs, ctx.prop_vals[j].data(), ctx.prop_vals[j].size());
+            }
+        }
     }
 };
 
@@ -381,14 +549,37 @@ bool append_event(std::string& dst, const char* ev, std::size_t n,
     EventHeader h;
     if (!parse_event_header(ev, n, h)) return false;
 
-    dst.append("{\"timestamp\":\"", 14);
+    dst.push_back('{');
+    const std::size_t body_start = dst.size();
+    static thread_local NdScratch nd_scratch;
+    NdjsonProps pol{dst, nd_scratch, body_start};
+
+    std::size_t ko = dst.size();
+    dst.append("\"timestamp\":", 12);
+    std::size_t vo = dst.size();
+    dst.push_back('"');
     dst.append(date_prefix);
     dst.append(h.time_b, h.time_n); // маска гарантирует только цифры/':'/'.'
-    dst.append("\",\"duration\":", 13);
+    dst.push_back('"');
+    pol.add_header("timestamp", 9, ko, vo, dst.size());
+
+    ko = dst.size() + 1;
+    dst.append(",\"duration\":", 12);
+    vo = dst.size();
     dst.append(h.dur_b, h.dur_n);
-    dst.append(",\"event\":\"", 10);
+    pol.add_header("duration", 8, ko, vo, dst.size());
+
+    ko = dst.size() + 1;
+    dst.append(",\"event\":", 9);
+    vo = dst.size();
+    dst.push_back('"');
     append_escaped(dst, h.name_b, h.name_n);
-    dst.append("\",\"level\":", 10);
+    dst.push_back('"');
+    pol.add_header("event", 5, ko, vo, dst.size());
+
+    ko = dst.size() + 1;
+    dst.append(",\"level_num\":", 13);
+    vo = dst.size();
     if (is_number_token(h.lvl_b, h.lvl_n)) {
         dst.append(h.lvl_b, h.lvl_n);
     } else {
@@ -396,14 +587,26 @@ bool append_event(std::string& dst, const char* ev, std::size_t n,
         append_escaped(dst, h.lvl_b, h.lvl_n);
         dst.push_back('"');
     }
-    dst.append(",\"filename\":\"", 13);
+    pol.add_header("level_num", 9, ko, vo, dst.size());
+
+    ko = dst.size() + 1;
+    dst.append(",\"filename\":", 12);
+    vo = dst.size();
+    dst.push_back('"');
     dst.append(filename_esc);
-    dst.append("\",\"file_path\":\"", 15);
+    dst.push_back('"');
+    pol.add_header("filename", 8, ko, vo, dst.size());
+
+    ko = dst.size() + 1;
+    dst.append(",\"file_path\":", 13);
+    vo = dst.size();
+    dst.push_back('"');
     dst.append(file_path_esc);
     dst.push_back('"');
+    pol.add_header("file_path", 9, ko, vo, dst.size());
 
-    NdjsonProps pol{dst};
     append_props_impl(pol, ev, h.props_off, h.n);
+    pol.finish();
 
     dst.append("}\n", 2);
     return true;
@@ -469,6 +672,7 @@ bool append_event_rowbinary(std::string& dst, const char* ev, std::size_t n,
     ctx.pairs.clear();
     RbProps pol{ctx};
     append_props_impl(pol, ev, h.props_off, h.n);
+    pol.finish();
     append_varint(dst, pol.count);
     dst.append(ctx.pairs);
     return true;

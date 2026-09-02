@@ -47,6 +47,10 @@ type RichExt struct {
 	Time       time.Time // ts с валидацией диапазонов (иначе эпоха)
 	DurationUs uint64    // toUInt64OrZero от сырого токена длительности
 
+	// LevelText — свойство события level=INFO|DEBUG|... В rev 3 оно
+	// схлопывалось с одноимённым полем заголовка и терялось целиком.
+	LevelText string
+
 	Collection  string
 	Process     string
 	ProcessName string
@@ -104,10 +108,17 @@ type RichExt struct {
 	DeadlockGraph string
 }
 
-// richHot — сырьё горячих свойств: первое вхождение каждого ключа
-// (семантика m[k] импортёра). Скретч RowBuilder'а, обнуляется на каждое событие.
+// richHot — сырьё горячих свойств: последнее вхождение каждого ключа
+// (§4.5 rev 4). Скретч RowBuilder'а, обнуляется на каждое событие.
 type richHot struct {
-	seen uint64 // битовая маска hotXxx — ключ уже встречался
+	seen   uint64 // битовая маска hotXxx — ключ встречался
+	dumped uint64 // ключи, чьё первое вхождение уже выгружено в props
+	kept   uint64 // ключи, первое вхождение которых положило в props своё правило
+
+	// Состояние одного вызова dispatchHot (§4.5 rev 4).
+	repeat     bool   // текущая пара — повтор горячего ключа
+	pending    string // первое вхождение, которое надо выгрузить перед текущим
+	hasPending bool
 
 	process, processName                    string
 	osThread, tClientID, clientID, connect  string
@@ -118,6 +129,7 @@ type richHot struct {
 	cpuTime, memory, memoryPeak             string
 	inBytes, outBytes, callWait             string
 	iName, mName, funcName, module          string
+	levelText                               string
 	context, sql, query, sdbl, planSQLText  string
 	descr, txtU, txtL, exception            string
 	regions, waitConnections, locks, deadlk string
@@ -152,6 +164,7 @@ const (
 	hotMName
 	hotFunc
 	hotModule
+	hotLevelText
 	hotContext
 	hotSQL
 	hotQuery
@@ -167,10 +180,25 @@ const (
 	hotDeadlock
 )
 
-// set запоминает первое вхождение: повторные игнорируются (m[k] = первое).
+// set запоминает ПОСЛЕДНЕЕ вхождение ключа (§4.5 rev 4: скалярная колонка
+// берёт последний элемент массива). До rev 4 здесь побеждало первое —
+// «семантика m[k] импортёра», из-за чего Func=Transaction,Func=CommitTransaction
+// давал в колонке Transaction, а признак commit/rollback терялся. Полный
+// список вхождений сохраняется в props.
 func (h *richHot) set(bit uint64, dst *string, value []byte) {
 	if h.seen&bit != 0 {
-		return
+		// Ключ повторился. Колонка возьмёт последнее значение, но предыдущие
+		// терять нельзя — они уезжают в props. Первое вхождение выгружается
+		// ровно один раз, на первом же повторе (dumped), иначе третье и
+		// последующие вхождения задвоили бы его.
+		h.repeat = true
+		if h.dumped&bit == 0 {
+			h.dumped |= bit
+			h.pending = *dst
+			// Если своё правило ключа (например SessionID) уже положило первое
+			// вхождение в props, повторная выгрузка задвоила бы его.
+			h.hasPending = h.kept&bit == 0
+		}
 	}
 	h.seen |= bit
 	*dst = string(value)
@@ -181,10 +209,19 @@ func (h *richHot) set(bit uint64, dst *string, value []byte) {
 // (в props по умолчанию не попадает); keepInProps — пару всё же надо
 // сохранить в props (условие SessionID).
 func (h *richHot) dispatchHot(name, value []byte) (isHot, keepInProps bool) {
+	h.repeat, h.hasPending = false, false
+	defer func() {
+		if h.repeat {
+			keepInProps = true
+		}
+	}()
 	switch string(name) { // switch string([]byte) не аллоцирует
 	// NDJSON-мета: исключаются из props, колонок не задают (заголовок первичен)
-	case "timestamp", "duration", "event", "level", "filename", "file_path":
+	case "timestamp", "duration", "event", "level_num", "filename", "file_path":
 		return true, false
+	// level=INFO — обычное свойство ТЖ, а не поле заголовка (§3 rev 4)
+	case "level":
+		h.set(hotLevelText, &h.levelText, value)
 	case "process":
 		h.set(hotProcess, &h.process, value)
 	case "p:processName":
@@ -202,7 +239,11 @@ func (h *richHot) dispatchHot(name, value []byte) (isHot, keepInProps bool) {
 		// Пара остаётся в props, только если значение не разобралось в число
 		// и не пусто/не '0' (правило mapFilter импортёра, применяется К КАЖДОЙ паре)
 		v := string(value)
-		return true, chUint32OrZero(v) == 0 && v != "" && v != "0"
+		if chUint32OrZero(v) == 0 && v != "" && v != "0" {
+			h.kept |= hotSessionID
+			return true, true
+		}
+		return true, false
 	case "Usr":
 		h.set(hotUsr, &h.usr, value)
 	case "t:applicationName":
@@ -282,6 +323,7 @@ func (h *richHot) finalize(ext *RichExt, datePrefix string, timePart []byte, dur
 	ext.Time = richEventTime(datePrefix, timePart)
 	ext.DurationUs = chUint64OrZero(string(durationTok))
 	ext.Collection = firstPathSegment(filePath)
+	ext.LevelText = h.levelText
 
 	ext.Process = h.process
 	ext.ProcessName = h.processName

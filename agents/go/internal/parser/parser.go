@@ -194,7 +194,81 @@ func SplitEvents(data []byte, emit func(ev []byte)) {
 //
 // datePrefix — "20YY-MM-DDTHH:" или ""; filenameEsc/filePathEsc — уже
 // JSON-экранированные значения полей filename/file_path (общие на файл).
+// Scratch — переиспользуемые буферы разбора одного события. Заводится ОДИН на
+// горутину-разборщик и передаётся в AppendEventScratch.
+//
+// Зачем: §4.5 rev 4 требует помнить следы полей события, чтобы свернуть повтор
+// ключа в массив. Массив следов на стеке Go зануляет при каждом вызове (~2 КБ
+// на событие), и на bench-medium это стоило 24% пропускной способности
+// (2787 -> 2121 МБ/с). С переиспользованием зануления нет.
+type Scratch struct {
+	refs []propRef
+	// Таблица сигнатур имён для O(N)-обнаружения повтора. Поколение gen
+	// заменяет обнуление: слот считается занятым, только если stamp == gen.
+	tbl   [sigSlots]uint32
+	stamp [sigSlots]uint32
+	gen   uint32
+	dup   bool // сигнатуры совпали — нужна точная сверка
+}
+
+const sigSlots = 128
+
+// nameSig — дешёвая сигнатура имени за O(1): длина + первый/последний/средний
+// байт. Совпадение сигнатур не означает совпадения имён, поэтому по хиту
+// запускается точная сверка; для реальных имён свойств ТЖ ложные срабатывания
+// единичны.
+func nameSig(n []byte) uint32 {
+	l := len(n)
+	if l == 0 {
+		return 1
+	}
+	return uint32(l)<<24 | uint32(n[0])<<16 | uint32(n[l-1])<<8 | uint32(n[l>>1])
+}
+
+// beginEvent открывает поколение таблицы сигнатур. Обнуления нет: слот
+// считается занятым, только если stamp == gen.
+func (sc *Scratch) beginEvent() {
+	sc.dup = false
+	sc.gen++
+	if sc.gen == 0 { // раз в 4 млрд событий
+		for i := range sc.stamp {
+			sc.stamp[i] = 0
+		}
+		sc.gen = 1
+	}
+}
+
+// noteName регистрирует имя поля и выставляет dup, если такая сигнатура уже
+// встречалась в этом событии. Совпадение сигнатур не означает совпадения имён —
+// точную сверку делает regroupRepeated, он же и решает, есть ли повтор.
+//
+// Зачем фильтр: честная попарная сверка имён стоила 21% пропускной способности
+// на bench-medium (2751 -> 2174 МБ/с), а до rev 4 обнаружения не было вовсе.
+func (sc *Scratch) noteName(name []byte) {
+	h := nameSig(name)
+	slot := h & (sigSlots - 1)
+	for {
+		if sc.stamp[slot] != sc.gen {
+			sc.stamp[slot] = sc.gen
+			sc.tbl[slot] = h
+			return
+		}
+		if sc.tbl[slot] == h {
+			sc.dup = true
+			return
+		}
+		slot = (slot + 1) & (sigSlots - 1)
+	}
+}
+
+// AppendEvent — обёртка без переиспользования буферов: удобна в тестах и на
+// холодных путях. В горячем цикле используйте AppendEventScratch.
 func AppendEvent(dst []byte, ev []byte, datePrefix string, filenameEsc, filePathEsc []byte) ([]byte, bool) {
+	var sc Scratch
+	return AppendEventScratch(dst, ev, datePrefix, filenameEsc, filePathEsc, &sc)
+}
+
+func AppendEventScratch(dst []byte, ev []byte, datePrefix string, filenameEsc, filePathEsc []byte, sc *Scratch) ([]byte, bool) {
 	// Хвостовые \r\n события обрезаются (внутренние сохраняются), §2.1
 	end := len(ev)
 	for end > 0 && (ev[end-1] == '\n' || ev[end-1] == '\r') {
@@ -241,14 +315,44 @@ func AppendEvent(dst []byte, ev []byte, datePrefix string, filenameEsc, filePath
 		p = len(ev)
 	}
 
-	dst = append(dst, `{"timestamp":"`...)
+	dst = append(dst, '{')
+	bodyStart := len(dst)
+	// Следы полей для §4.5: заголовочные участвуют в перегруппировке наравне
+	// со свойствами — свойство с именем поля заголовка (golden-кейс dup_keys:
+	// event=fake) обязано слиться с ним в массив, а не дать второй ключ.
+	refs := sc.refs[:0]
+	sc.beginEvent()
+
+	sc.noteName(hdrTimestamp)
+	refs = append(refs, propRef{name: hdrTimestamp, keyOff: len(dst)})
+	dst = append(dst, `"timestamp":`...)
+	refs[0].valOff = len(dst)
+	dst = append(dst, '"')
 	dst = append(dst, datePrefix...)
 	dst = append(dst, timePart...) // маска гарантирует только цифры/':'/'.'
-	dst = append(dst, `","duration":`...)
+	dst = append(dst, '"')
+	refs[0].endOff = len(dst)
+
+	sc.noteName(hdrDuration)
+	refs = append(refs, propRef{name: hdrDuration, keyOff: len(dst) + 1})
+	dst = append(dst, `,"duration":`...)
+	refs[1].valOff = len(dst)
 	dst = append(dst, duration...)
-	dst = append(dst, `,"event":"`...)
+	refs[1].endOff = len(dst)
+
+	sc.noteName(hdrEvent)
+	refs = append(refs, propRef{name: hdrEvent, keyOff: len(dst) + 1})
+	dst = append(dst, `,"event":`...)
+	refs[2].valOff = len(dst)
+	dst = append(dst, '"')
 	dst = AppendEscaped(dst, eventName)
-	dst = append(dst, `","level":`...)
+	dst = append(dst, '"')
+	refs[2].endOff = len(dst)
+
+	sc.noteName(hdrLevelNum)
+	refs = append(refs, propRef{name: hdrLevelNum, keyOff: len(dst) + 1})
+	dst = append(dst, `,"level_num":`...)
+	refs[3].valOff = len(dst)
 	if IsNumberToken(level) {
 		dst = append(dst, level...)
 	} else {
@@ -256,14 +360,32 @@ func AppendEvent(dst []byte, ev []byte, datePrefix string, filenameEsc, filePath
 		dst = AppendEscaped(dst, level)
 		dst = append(dst, '"')
 	}
-	dst = append(dst, `,"filename":"`...)
+	refs[3].endOff = len(dst)
+
+	sc.noteName(hdrFilename)
+	refs = append(refs, propRef{name: hdrFilename, keyOff: len(dst) + 1})
+	dst = append(dst, `,"filename":`...)
+	refs[4].valOff = len(dst)
+	dst = append(dst, '"')
 	dst = append(dst, filenameEsc...)
-	dst = append(dst, `","file_path":"`...)
+	dst = append(dst, '"')
+	refs[4].endOff = len(dst)
+
+	sc.noteName(hdrFilePath)
+	refs = append(refs, propRef{name: hdrFilePath, keyOff: len(dst) + 1})
+	dst = append(dst, `,"file_path":`...)
+	refs[5].valOff = len(dst)
+	dst = append(dst, '"')
 	dst = append(dst, filePathEsc...)
 	dst = append(dst, '"')
+	refs[5].endOff = len(dst)
 
 	// Свойства Имя=Значение (§3, §4)
-	dst = appendProps(dst, ev, p)
+	dst, refs = appendProps(dst, ev, p, refs, sc)
+	if sc.dup {
+		dst = regroupRepeated(dst, bodyStart, refs)
+	}
+	sc.refs = refs[:0] // ёмкость сохраняется для следующего события
 
 	dst = append(dst, '}', '\n')
 	return dst, true
@@ -271,7 +393,7 @@ func AppendEvent(dst []byte, ev []byte, datePrefix string, filenameEsc, filePath
 
 // appendProps — автомат свойств: имя до '=', значение по правилам кавычек §4.1
 // либо без кавычек до ',' с типизацией §4.2. Хвост без '=' молча отбрасывается.
-func appendProps(dst []byte, ev []byte, p int) []byte {
+func appendProps(dst []byte, ev []byte, p int, refs []propRef, sc *Scratch) ([]byte, []propRef) {
 	end := len(ev)
 	for p < end {
 		eq := bytes.IndexByte(ev[p:end], '=')
@@ -281,13 +403,18 @@ func appendProps(dst []byte, ev []byte, p int) []byte {
 		eqPos := p + eq
 		name := ev[p:eqPos]
 
+		sc.noteName(name)
+		ref := propRef{name: name, keyOff: len(dst) + 1}
 		dst = append(dst, ',', '"')
 		dst = AppendEscaped(dst, name)
 		dst = append(dst, '"', ':')
+		ref.valOff = len(dst)
 
 		p = eqPos + 1
 		if p >= end {
 			dst = append(dst, '"', '"')
+			ref.endOff = len(dst)
+			refs = append(refs, ref)
 			break
 		}
 
@@ -385,9 +512,104 @@ func appendProps(dst []byte, ev []byte, p int) []byte {
 			p = sepPos
 		}
 
+		ref.endOff = len(dst)
+		refs = append(refs, ref)
+
 		if p < end && ev[p] == ',' {
 			p++
 		}
 	}
-	return dst
+	return dst, refs
 }
+
+// propRef — след одного свойства в буфере вывода: границы фрагмента
+// `,"имя":значение` и позиция значения внутри него, плюс имя в исходном
+// событии. Заполняется на горячем пути; используется только тогда, когда
+// в событии реально повторился ключ.
+type propRef struct {
+	name   []byte // имя поля: подсрез события либо константа заголовка
+	keyOff int    // индекс открывающей кавычки имени в dst (без разделителя)
+	valOff int    // индекс первого байта значения в dst
+	endOff int    // индекс за последним байтом значения в dst
+}
+
+// sameName сравнивает исходные (неэкранированные) имена двух полей.
+func sameName(a, b propRef) bool { return bytes.Equal(a.name, b.name) }
+
+// regroupRepeated реализует §4.5 rev 4: ключ, встретившийся в событии больше
+// одного раза, кодируется JSON-массивом всех своих значений в порядке
+// источника; одиночный ключ остаётся скаляром. Порядок ключей — по первому
+// вхождению. Участвуют и поля заголовка: свойство с именем заголовочного поля
+// сливается с ним, а не даёт второй одноимённый ключ (§4.5 п.3).
+//
+// Повторы редки (корпус _PSI: 1617 событий из 939 773), поэтому обнаружение
+// делается сравнением имён на месте, а тело объекта перестраивается только при
+// найденном повторе — на горячем пути расход сводится к записи смещений.
+func regroupRepeated(dst []byte, bodyStart int, refs []propRef) []byte {
+	if len(refs) < 2 {
+		return dst
+	}
+	repeated := false
+	for i := 1; i < len(refs) && !repeated; i++ {
+		for j := 0; j < i; j++ {
+			if sameName(refs[i], refs[j]) {
+				repeated = true
+				break
+			}
+		}
+	}
+	if !repeated {
+		return dst
+	}
+
+	// Тело объекта переписывается целиком, поэтому исходные байты нужно
+	// сохранить: они лежат в том же dst, который мы усекаем.
+	src := append([]byte(nil), dst[bodyStart:]...)
+	out := dst[:bodyStart]
+	done := make([]bool, len(refs))
+	first := true
+	for i := range refs {
+		if done[i] {
+			continue
+		}
+		done[i] = true
+		n := 1
+		for j := i + 1; j < len(refs); j++ {
+			if !done[j] && sameName(refs[i], refs[j]) {
+				n++
+			}
+		}
+		if !first {
+			out = append(out, ',')
+		}
+		first = false
+		if n == 1 {
+			out = append(out, src[refs[i].keyOff-bodyStart:refs[i].endOff-bodyStart]...)
+			continue
+		}
+		out = append(out, src[refs[i].keyOff-bodyStart:refs[i].valOff-bodyStart]...)
+		out = append(out, '[')
+		out = append(out, src[refs[i].valOff-bodyStart:refs[i].endOff-bodyStart]...)
+		for j := i + 1; j < len(refs); j++ {
+			if done[j] || !sameName(refs[i], refs[j]) {
+				continue
+			}
+			done[j] = true
+			out = append(out, ',')
+			out = append(out, src[refs[j].valOff-bodyStart:refs[j].endOff-bodyStart]...)
+		}
+		out = append(out, ']')
+	}
+	return out
+}
+
+// Имена полей заголовка как байтовые срезы: пакетные переменные, чтобы
+// сравнение имён в regroupRepeated не аллоцировало на каждое событие.
+var (
+	hdrTimestamp = []byte("timestamp")
+	hdrDuration  = []byte("duration")
+	hdrEvent     = []byte("event")
+	hdrLevelNum  = []byte("level_num")
+	hdrFilename  = []byte("filename")
+	hdrFilePath  = []byte("file_path")
+)

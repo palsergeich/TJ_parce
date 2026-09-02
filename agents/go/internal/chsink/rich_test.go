@@ -273,9 +273,10 @@ func TestBuildRich(t *testing.T) {
 	if x.ClientID != 77 || x.ConnectID != 9 {
 		t.Errorf("client/connect: %d/%d", x.ClientID, x.ConnectID)
 	}
-	// SessionID: первое значение '586(581)' → 0; вторая пара '5' разобралась → в props не идёт
-	if x.SessionID != 0 {
-		t.Errorf("SessionID = %d, want 0", x.SessionID)
+	// SessionID (§4.5 rev 4: колонка берёт последнее вхождение): '586(581)' не
+	// разобралось и осталось в props, последняя пара '5' попала в колонку.
+	if x.SessionID != 5 {
+		t.Errorf("SessionID = %d, want 5", x.SessionID)
 	}
 	if x.Usr != "Иванов" || x.AppName != "1CV8C" || x.ComputerName != "PC-01" || x.AppID != "app" {
 		t.Errorf("сеанс: %+v", x)
@@ -325,11 +326,16 @@ func TestBuildRich(t *testing.T) {
 		t.Errorf("LockWaitConns = %v", x.LockWaitConns)
 	}
 
-	// Хвост props: SessionID='586(581)' (не разобрался), first ×2 (дубликаты
-	// сохраняются), Дубль=1. NDJSON-мета 'timestamp=meta' исключена. Query/Sdbl/
-	// Txt и прочие горячие — исключены.
+	// Хвост props. §4.5 rev 4: у повторившегося ГОРЯЧЕГО ключа в колонку
+	// попадает последнее вхождение, а полный список уезжает в props — иначе
+	// первое значение терялось бы без следа (ровно так до rev 4 пропадал
+	// Func=Transaction при Func=Transaction,Func=CommitTransaction).
+	// Поэтому SessionID даёт обе пары: '586(581)' (не разобралось) и '5'
+	// (ушло в колонку session_id). first ×2 — обычный повтор негорячего
+	// ключа. NDJSON-мета 'timestamp=meta' исключена, прочие горячие — тоже.
 	want := Props{
 		{"SessionID", "586(581)"},
+		{"SessionID", "5"},
 		{"first", "extra"},
 		{"first", "extra2"},
 		{"Дубль", "1"},
@@ -367,11 +373,19 @@ func TestBuildRich(t *testing.T) {
 	if r4.Rich.SQLText != "S1" {
 		t.Errorf("приоритет Sql: %q", r4.Rich.SQLText)
 	}
-	// t:clientID непустой — ClientID игнорируется; SessionID='0' и '' в props не идут
+	// t:clientID непустой — ClientID игнорируется. SessionID повторился, поэтому
+	// §4.5 rev 4 сохраняет ОБА вхождения в props: по одиночке '0' и '' туда бы
+	// не попали, но тогда одиночный SessionID=0 стал бы неотличим от пары.
 	f5, _ := parser.ParseEventFields([]byte("00:01.000000-5,CALL,1,t:clientID=8,ClientID=77,SessionID=0,SessionID="))
 	r5 := b.Build(f5, "2025-11-30T16:", "a.log", "a")
-	if r5.Rich.ClientID != 8 || r5.Rich.SessionID != 0 || len(r5.Props) != 0 {
+	wantProps5 := Props{{"SessionID", "0"}, {"SessionID", ""}}
+	if r5.Rich.ClientID != 8 || r5.Rich.SessionID != 0 || len(r5.Props) != len(wantProps5) {
 		t.Errorf("t:clientID/SessionID: %+v props=%+v", r5.Rich, r5.Props)
+	}
+	for i := range wantProps5 {
+		if r5.Props[i] != wantProps5[i] {
+			t.Errorf("props[%d] = %+v, want %+v", i, r5.Props[i], wantProps5[i])
+		}
 	}
 }
 

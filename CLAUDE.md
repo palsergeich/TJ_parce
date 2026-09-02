@@ -20,7 +20,7 @@ C++ 88.2 > Rust 86.3, [docs/decision-record.md](docs/decision-record.md)). Ра�
 | `agents/go/` | **Продуктовый агент** (Go, ch-go): batch+follow, rich-схема, служба Windows, /metrics | развивается (фаза 3+) |
 | `core/` | C++ ядро: tj_core lib + tj-agent-cpp CLI + C ABI (FFI) | эталон формата + библиотека |
 | `agents/rust/` | Rust-участник (std-only) | законсервирован (дифф-фаззинг) |
-| `cpp_parse/` | Исходный нормализатор | замороженный golden-эталон; НЕ трогать |
+| `cpp_parse/` | Исходный нормализатор | v1.0-артефакт; НЕ трогать, из golden-гейта выведен на rev 4 |
 | `deploy/` | docker-compose (CH+Grafana+Prometheus), схема БД, импортёр, дашборды | прод |
 | `tests/` | golden (byte-exact) / tail (7 сценариев) / integration | гейты |
 | `bench/` | скрипты серий + результаты всех замеров | история решений |
@@ -36,6 +36,8 @@ cd agents\go; go build -trimpath -ldflags "-s -w" -o tj-agent-go.exe ./cmd/tj-ag
 go vet ./...; go test ./...
 
 # Golden-гейт (ОБЯЗАТЕЛЕН после любых правок парсеров; НИКОГДА -Regen без смены спеки)
+# Генератор эталона — core/ (дефолтный -Agent). cpp_parse выведен из гейта на rev 4:
+# он заморожен и физически не может выдавать rev-4 вывод (закрытый KI-4).
 powershell -File tests\golden\run_golden.ps1 -Agent <exe>   # ожидание: 18 PASS, 0 FAIL, 1 XFAIL(KI-1)
 
 # Tail-серия (форграунд! фоновые задачи без сети к localhost)
@@ -48,7 +50,7 @@ powershell -File tests\tail\run_tail.ps1 -Agent <exe>       # 7/7 PASS
 
 ## Жёсткие правила (нарушение = регрессия)
 
-1. **Формат** = [docs/format-spec.md](docs/format-spec.md) (rev 3, единственный источник истины,
+1. **Формат** = [docs/format-spec.md](docs/format-spec.md) (rev 4, единственный источник истины,
    реестр KI там же). Три реализации байт-эквивалентны; любое изменение формата — через спеку,
    перегенерацию goldens (`-Regen`) и синхронно во всех трёх парсерах.
 2. **Данные**: `tj.events` — 121 485 342 продакшн-строки, НЕ вставлять/не трункейтить в тестах.

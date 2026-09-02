@@ -213,22 +213,22 @@ func run(args []string) int {
 			stopCh = interruptStopCh() // консоль: Ctrl+C — graceful-стоп
 		}
 		return follow.Run(follow.Config{
-			Input:       cfg.input,
-			Inputs:      cfg.inputs,
-			Threads:     cfg.workers,
-			DSN:         cfg.chDSN,
-			BatchRows:   cfg.batchRows,
-			BatchBytes:  cfg.batchBytes,
-			FlushMS:     cfg.flushMS,
-			StateDir:    cfg.stateDir,
-			StopFile:    cfg.stopFile,
-			PollMS:      cfg.pollMS,
-			IdleCloseMS: cfg.idleCloseMS,
-			StatsJSON:     cfg.statsJSON,
-			StopCh:        stopCh,
-			LogLevel:      cfg.logLevel,
-			NoSQLNorm:     cfg.noSQLNorm,
-			NoCtxSKDSmart: !cfg.ctxSKDSmart,
+			Input:          cfg.input,
+			Inputs:         cfg.inputs,
+			Threads:        cfg.workers,
+			DSN:            cfg.chDSN,
+			BatchRows:      cfg.batchRows,
+			BatchBytes:     cfg.batchBytes,
+			FlushMS:        cfg.flushMS,
+			StateDir:       cfg.stateDir,
+			StopFile:       cfg.stopFile,
+			PollMS:         cfg.pollMS,
+			IdleCloseMS:    cfg.idleCloseMS,
+			StatsJSON:      cfg.statsJSON,
+			StopCh:         stopCh,
+			LogLevel:       cfg.logLevel,
+			NoSQLNorm:      cfg.noSQLNorm,
+			NoCtxSKDSmart:  !cfg.ctxSKDSmart,
 			BufferType:     cfg.bufferType,
 			BufferPath:     cfg.bufferPath,
 			BufferMaxBytes: cfg.bufferMaxBytes,
@@ -889,22 +889,22 @@ func runFollowFromConfigFile(cfgPath string, stopCh <-chan struct{}, defaultLogT
 		defer srv.Close()
 	}
 	return follow.Run(follow.Config{
-		Input:       fc.Inputs[0],
-		Inputs:      fc.Inputs,
-		Threads:     fc.Threads,
-		DSN:         normalizeCHDSN(fc.Sink),
-		BatchRows:   fc.BatchRows,
-		BatchBytes:  fc.BatchBytes,
-		FlushMS:     fc.FlushMS,
-		StateDir:    fc.StateDir,
-		StopFile:    fc.StopFile,
-		PollMS:      fc.PollMS,
-		IdleCloseMS: fc.IdleCloseMS,
-		StatsJSON:     fc.StatsJSON,
-		StopCh:        stopCh,
-		LogLevel:      fc.LogLevel,
-		NoSQLNorm:     !fc.SQLNorm,
-		NoCtxSKDSmart: !fc.ContextSKDSmart,
+		Input:          fc.Inputs[0],
+		Inputs:         fc.Inputs,
+		Threads:        fc.Threads,
+		DSN:            normalizeCHDSN(fc.Sink),
+		BatchRows:      fc.BatchRows,
+		BatchBytes:     fc.BatchBytes,
+		FlushMS:        fc.FlushMS,
+		StateDir:       fc.StateDir,
+		StopFile:       fc.StopFile,
+		PollMS:         fc.PollMS,
+		IdleCloseMS:    fc.IdleCloseMS,
+		StatsJSON:      fc.StatsJSON,
+		StopCh:         stopCh,
+		LogLevel:       fc.LogLevel,
+		NoSQLNorm:      !fc.SQLNorm,
+		NoCtxSKDSmart:  !fc.ContextSKDSmart,
 		BufferType:     fc.Buffer.Type,
 		BufferPath:     fc.Buffer.Path,
 		BufferMaxBytes: fc.Buffer.MaxBytes,
@@ -1158,9 +1158,10 @@ func processFile(fm fileMeta, s *stats, out chan<- []byte, pool *sync.Pool, inBu
 
 	outBuf := pool.Get().([]byte)[:0]
 	var events, skips uint64
+	var sc parser.Scratch // один на файл: переиспользуется между событиями
 	inBuf, bytesRead, err := parser.ScanEvents(f, inBuf, func(ev []byte) {
 		var ok bool
-		outBuf, ok = parser.AppendEvent(outBuf, ev, fm.datePrefix, filenameEsc, filePathEsc)
+		outBuf, ok = parser.AppendEventScratch(outBuf, ev, fm.datePrefix, filenameEsc, filePathEsc, &sc)
 		if ok {
 			events++
 		} else {

@@ -357,13 +357,58 @@ impl EventEmitter for RowEmitter {
             self.pairs.push((self.name_end, self.arena.len()));
             self.pending = false;
         }
-        let out = &mut self.chunk.data;
-        put_uvarint(out, self.pairs.len() as u64);
+        // §4.5 rev 4: props имеет тип Map(String, Array(String)) — ключ
+        // выводится один раз, по первому вхождению, значение — массив всех
+        // его вхождений в порядке события. Границы пар в арене идут подряд:
+        // значение i-й пары кончается там, где начинается имя (i+1)-й.
+        let mut spans: Vec<(usize, usize, usize)> = Vec::with_capacity(self.pairs.len());
         let mut start = 0usize;
         for &(ne, ve) in &self.pairs {
-            put_str(out, &self.arena[start..ne]);
-            put_str(out, &self.arena[ne..ve]);
+            spans.push((start, ne, ve));
             start = ve;
+        }
+        let mut done = vec![false; spans.len()];
+        let mut keys = 0u64;
+        for i in 0..spans.len() {
+            if done[i] {
+                continue;
+            }
+            keys += 1;
+            for j in i + 1..spans.len() {
+                if !done[j] && self.arena[spans[j].0..spans[j].1] == self.arena[spans[i].0..spans[i].1]
+                {
+                    done[j] = true;
+                }
+            }
+        }
+        for d in done.iter_mut() {
+            *d = false;
+        }
+
+        let out = &mut self.chunk.data;
+        put_uvarint(out, keys);
+        for i in 0..spans.len() {
+            if done[i] {
+                continue;
+            }
+            done[i] = true;
+            let (s_i, ne_i, ve_i) = spans[i];
+            let mut n_vals = 1u64;
+            for j in i + 1..spans.len() {
+                if !done[j] && self.arena[spans[j].0..spans[j].1] == self.arena[s_i..ne_i] {
+                    n_vals += 1;
+                }
+            }
+            put_str(out, &self.arena[s_i..ne_i]);
+            put_uvarint(out, n_vals);
+            put_str(out, &self.arena[ne_i..ve_i]);
+            for j in i + 1..spans.len() {
+                if done[j] || self.arena[spans[j].0..spans[j].1] != self.arena[s_i..ne_i] {
+                    continue;
+                }
+                done[j] = true;
+                put_str(out, &self.arena[spans[j].1..spans[j].2]);
+            }
         }
         self.chunk.ends.push(out.len());
     }
@@ -638,7 +683,7 @@ pub struct ChClient {
 impl ChClient {
     pub fn new(t: &ChTarget) -> ChClient {
         let sql = format!(
-            "INSERT INTO {}.{} (timestamp,duration,event,level,filename,file_path,props) FORMAT RowBinary",
+            "INSERT INTO {}.{} (timestamp,duration,event,level_num,filename,file_path,props) FORMAT RowBinary",
             t.db, t.table
         );
         ChClient {
@@ -1133,18 +1178,31 @@ mod tests {
         assert_eq!(get_str(b, &mut p), b"0"); // level — текстом
         assert_eq!(get_str(b, &mut p), b"25113021.log");
         assert_eq!(get_str(b, &mut p), b"input\\rphost_1\\25113021.log");
+        // §4.5 rev 4: props — Map(String, Array(String)); ключ N повторился,
+        // поэтому различных ключей шесть, а его значение — массив из двух.
         let n = get_uvarint(b, &mut p);
-        assert_eq!(n, 7);
-        let pairs: Vec<(Vec<u8>, Vec<u8>)> = (0..n)
-            .map(|_| (get_str(b, &mut p).to_vec(), get_str(b, &mut p).to_vec()))
+        assert_eq!(n, 6);
+        let pairs: Vec<(Vec<u8>, Vec<Vec<u8>>)> = (0..n)
+            .map(|_| {
+                let k = get_str(b, &mut p).to_vec();
+                let cnt = get_uvarint(b, &mut p);
+                let vals = (0..cnt).map(|_| get_str(b, &mut p).to_vec()).collect();
+                (k, vals)
+            })
             .collect();
-        assert_eq!(pairs[0], (b"Usr".to_vec(), b"x'y".to_vec()));
-        assert_eq!(pairs[1], (b"B".to_vec(), b"p\"q".to_vec()));
-        assert_eq!(pairs[2], (b"Ctx".to_vec(), b"line1\r\nline2".to_vec()));
-        assert_eq!(pairs[3], (b"N".to_vec(), b"42".to_vec()));
-        assert_eq!(pairs[4], (b"Empty".to_vec(), b"".to_vec()));
-        assert_eq!(pairs[5], (b"Guid".to_vec(), b"007".to_vec()));
-        assert_eq!(pairs[6], (b"N".to_vec(), b"43".to_vec())); // дубликат сохранён
+        assert_eq!(pairs[0], (b"Usr".to_vec(), vec![b"x'y".to_vec()]));
+        assert_eq!(pairs[1], (b"B".to_vec(), vec![b"p\"q".to_vec()]));
+        assert_eq!(
+            pairs[2],
+            (b"Ctx".to_vec(), vec![b"line1\r\nline2".to_vec()])
+        );
+        // повтор ключа N собран в массив в порядке события
+        assert_eq!(
+            pairs[3],
+            (b"N".to_vec(), vec![b"42".to_vec(), b"43".to_vec()])
+        );
+        assert_eq!(pairs[4], (b"Empty".to_vec(), vec![b"".to_vec()]));
+        assert_eq!(pairs[5], (b"Guid".to_vec(), vec![b"007".to_vec()]));
         assert_eq!(p, c.data.len());
     }
 

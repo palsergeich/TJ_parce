@@ -51,7 +51,7 @@ $ErrorActionPreference = 'Stop'
 $insertSqlTemplate = @'
 INSERT INTO {DB}.events
 (
-    ts, duration_us, event, level, collection, src_file, src_path, src_line,
+    ts, duration_us, event, level_num, level, collection, src_file, src_path, src_line,
     process, process_name, os_thread, client_id, connect_id, session_id, usr,
     app_name, computer_name, app_id,
     dbms, db_name, db_pid, trans, rows_ret, rows_affected,
@@ -63,7 +63,19 @@ INSERT INTO {DB}.events
     props
 )
 WITH
-    CAST(JSONExtractKeysAndValues(json, 'String'), 'Map(String, String)') AS m,
+    -- format-spec.md §4.5 rev 4: повтор ключа приезжает JSON-массивом.
+    -- kv отдаёт массивы сырым текстом, kva — только настоящие массивы,
+    -- поэтому строковое значение вида '[...]' не будет принято за массив.
+    JSONExtractKeysAndValues(json, 'String')        AS kv,
+    JSONExtractKeysAndValues(json, 'Array(String)') AS kva,
+    arrayMap(p -> p.1, kva)                         AS kva_keys,
+    arrayMap(p -> p.1, kv)                          AS m_keys,
+    arrayMap(p -> if(has(kva_keys, p.1), kva[indexOf(kva_keys, p.1)].2, [p.2]), kv) AS m_vals,
+    -- mall — все вхождения каждого ключа; m — последнее (§4.5: скалярная
+    -- колонка берёт последний элемент), чтобы выражения колонок ниже
+    -- остались прежними.
+    CAST((m_keys, m_vals), 'Map(String, Array(String))') AS mall,
+    CAST((m_keys, arrayMap(a -> if(empty(a), '', a[-1]), m_vals)), 'Map(String, String)') AS m,
     m['Context'] AS v_context,
     -- первый непустой из Sql | Query | Sdbl
     if(m['Sql'] != '', m['Sql'], if(m['Query'] != '', m['Query'], m['Sdbl'])) AS v_sql,
@@ -79,6 +91,8 @@ SELECT
     toUInt64OrZero(m['duration'])                                        AS duration_us,
     m['event']                                                           AS event,
     -- level в источнике бывает и числом, и строкой; в Map оба уже строки
+    -- level_num — важность из заголовка, level — одноимённое СВОЙСТВО события
+    m['level_num']                                                       AS level_num,
     m['level']                                                           AS level,
     -- коллекция = первый сегмент file_path (разделители и '\', и '/')
     splitByChar('\\', replaceAll(m['file_path'], '/', '\\'))[1]          AS collection,
@@ -136,7 +150,7 @@ SELECT
     -- сохраняется в props, чтобы значение не потерялось.
     mapFilter((k, v) ->
         (k NOT IN (
-            'timestamp','duration','event','level','filename','file_path',
+            'timestamp','duration','event','level_num','level','filename','file_path',
             'process','p:processName','OSThread','t:clientID','ClientID','t:connectID',
             'SessionID','Usr','t:applicationName','t:computerName','AppID',
             'DBMS','DataBase','dbpid','Trans','Rows','RowsAffected',
@@ -145,8 +159,13 @@ SELECT
             'Context','Sql','Query','Sdbl','planSQLText','Descr','Txt','txt','Exception',
             'Regions','WaitConnections','Locks','DeadlockConnectionIntersections'
         ))
-        OR (k = 'SessionID' AND toUInt32OrZero(v) = 0 AND v != '' AND v != '0'),
-        m)                                                               AS props
+        -- SessionID остаётся, если единственное значение не разобралось в число
+        OR (k = 'SessionID' AND length(v) = 1
+            AND toUInt32OrZero(v[1]) = 0 AND v[1] != '' AND v[1] != '0')
+        -- §4.5 rev 4: повторившийся горячий ключ сохраняется целиком, иначе
+        -- всё, кроме последнего вхождения, потерялось бы без следа
+        OR (length(v) > 1),
+        mall)                                                            AS props
 FROM input('json String')
 FORMAT JSONAsString
 '@

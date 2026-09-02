@@ -46,6 +46,7 @@ import (
 // с которой создан RowBuilder. line обязана быть стабильной до возврата.
 func (b *RowBuilder) BuildNDJSON(line []byte) (Row, error) {
 	d := njDecoder{s: line}
+	defer func() { d.extras = d.extras[:0] }()
 	if err := d.expect('{'); err != nil {
 		return Row{}, err
 	}
@@ -62,7 +63,7 @@ func (b *RowBuilder) BuildNDJSON(line []byte) (Row, error) {
 	if err != nil {
 		return Row{}, err
 	}
-	level, err := d.headerAny("level")
+	level, err := d.headerAny("level_num")
 	if err != nil {
 		return Row{}, err
 	}
@@ -100,6 +101,16 @@ func (b *RowBuilder) BuildNDJSON(line []byte) (Row, error) {
 	}
 	r.bytes = rowFixedBytes + len(r.Event) + len(r.Level) + len(r.Filename) + len(r.FilePath)
 
+	// Свойства, слитые с полями заголовка, отдаются первыми — их исходная
+	// позиция среди остальных при кодировании массивом не сохранилась.
+	for i := range d.extras {
+		if b.rich {
+			b.richProp(&r, []byte(d.extras[i].name), d.extras[i].value)
+		} else {
+			b.benchProp(&r, []byte(d.extras[i].name), d.extras[i].value)
+		}
+	}
+
 	// Свойства события: до '}' — пары "имя":значение в исходном порядке.
 	for {
 		c, err := d.next()
@@ -120,15 +131,15 @@ func (b *RowBuilder) BuildNDJSON(line []byte) (Row, error) {
 		if err := d.expect(':'); err != nil {
 			return Row{}, err
 		}
-		value, err := d.value()
-		if err != nil {
-			return Row{}, err
-		}
 		// Обработчики копируют name/value до возврата — скретчи переиспользуемы.
-		if b.rich {
-			b.richProp(&r, name, value)
-		} else {
-			b.benchProp(&r, name, value)
+		if err := d.eachValue(func(value []byte) {
+			if b.rich {
+				b.richProp(&r, name, value)
+			} else {
+				b.benchProp(&r, name, value)
+			}
+		}); err != nil {
+			return Row{}, err
 		}
 	}
 	// Хвост: опциональный LF (полная NDJSON-строка) и ничего больше.
@@ -158,6 +169,7 @@ type njDecoder struct {
 	p       int
 	nameBuf []byte
 	valBuf  []byte
+	extras  []njExtra // вхождения, слитые с полями заголовка (§4.5 rev 4)
 }
 
 func (d *njDecoder) expect(c byte) error {
@@ -184,8 +196,62 @@ func (d *njDecoder) headerString(name string) ([]byte, error) {
 	if err := d.key(name); err != nil {
 		return nil, err
 	}
+	arr, err := d.headerArrayOpen()
+	if err != nil {
+		return nil, err
+	}
 	v, _, err := d.str(nil)
-	return v, err
+	if err != nil {
+		return nil, err
+	}
+	return v, d.headerArrayClose(arr, name)
+}
+
+// headerArrayOpen/headerArrayClose — §4.5 rev 4: свойство события с именем
+// поля заголовка сливается с ним в массив, где значение заголовка идёт первым.
+// Прямой путь такое свойство отбрасывает («заголовок первичен», dispatchHot
+// возвращает isHot без keepInProps), поэтому реплей обязан вести себя так же:
+// взять первый элемент и пропустить остальные.
+func (d *njDecoder) headerArrayOpen() (bool, error) {
+	if d.p < len(d.s) && d.s[d.p] == '[' {
+		d.p++
+		return true, nil
+	}
+	return false, nil
+}
+
+func (d *njDecoder) headerArrayClose(arr bool, name string) error {
+	if !arr {
+		return nil
+	}
+	for {
+		c, err := d.next()
+		if err != nil {
+			return err
+		}
+		if c == ']' {
+			return nil
+		}
+		if c != ',' {
+			return fmt.Errorf("ndjson: ожидалась ',' или ']' на позиции %d, получено %q", d.p-1, c)
+		}
+		v, err := d.value()
+		if err != nil {
+			return err
+		}
+		// Прямой путь видит это как обычное свойство события: bench кладёт его
+		// в props, rich отбрасывает (dispatchHot). Значение копируется —
+		// скретч valBuf переиспользуется следующим свойством.
+		d.extras = append(d.extras, njExtra{name: name, value: append([]byte(nil), v...)})
+	}
+}
+
+// njExtra — вхождение свойства, слитого с одноимённым полем заголовка (§4.5
+// rev 4). Позиция такого свойства среди остальных при слиянии в массив не
+// сохраняется: реплей отдаёт его на месте поля заголовка.
+type njExtra struct {
+	name  string
+	value []byte
 }
 
 // headerNumber — заголовочное поле-число (сырой токен).
@@ -193,7 +259,15 @@ func (d *njDecoder) headerNumber(name string) ([]byte, error) {
 	if err := d.key(name); err != nil {
 		return nil, err
 	}
-	return d.number()
+	arr, err := d.headerArrayOpen()
+	if err != nil {
+		return nil, err
+	}
+	v, err := d.number()
+	if err != nil {
+		return nil, err
+	}
+	return v, d.headerArrayClose(arr, name)
 }
 
 // headerAny — заголовочное поле строка-или-число (level). Строковое значение
@@ -202,11 +276,20 @@ func (d *njDecoder) headerAny(name string) ([]byte, error) {
 	if err := d.key(name); err != nil {
 		return nil, err
 	}
-	if d.p < len(d.s) && d.s[d.p] == '"' {
-		v, _, err := d.str(nil)
-		return v, err
+	arr, err := d.headerArrayOpen()
+	if err != nil {
+		return nil, err
 	}
-	return d.number()
+	var v []byte
+	if d.p < len(d.s) && d.s[d.p] == '"' {
+		v, _, err = d.str(nil)
+	} else {
+		v, err = d.number()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return v, d.headerArrayClose(arr, name)
 }
 
 // key — точное имя заголовочного поля: тот же порядок, что у AppendEvent;
@@ -229,6 +312,44 @@ func (d *njDecoder) key(name string) error {
 
 // value — значение свойства: строка (декод в valBuf при escape) либо число
 // (сырой токен). Иных типов AppendEvent не порождает.
+// eachValue читает значение свойства и отдаёт обработчику. Массив (§4.5 rev 4 —
+// единственный признак повторяющегося ключа) разворачивается в последовательность
+// значений в исходном порядке, поэтому приёмник видит ровно ту же ленту пар
+// «имя-значение», что и прямой путь parser.ScanProps: решение о том, какое
+// вхождение попадает в скалярную колонку, остаётся в одном месте (richHot.set).
+func (d *njDecoder) eachValue(fn func([]byte)) error {
+	if d.p >= len(d.s) || d.s[d.p] != '[' {
+		v, err := d.value()
+		if err != nil {
+			return err
+		}
+		fn(v)
+		return nil
+	}
+	d.p++
+	if d.p < len(d.s) && d.s[d.p] == ']' {
+		d.p++
+		return nil
+	}
+	for {
+		v, err := d.value()
+		if err != nil {
+			return err
+		}
+		fn(v)
+		c, err := d.next()
+		if err != nil {
+			return err
+		}
+		if c == ']' {
+			return nil
+		}
+		if c != ',' {
+			return fmt.Errorf("ndjson: ожидалась ',' или ']' на позиции %d, получено %q", d.p-1, c)
+		}
+	}
+}
+
 func (d *njDecoder) value() ([]byte, error) {
 	if d.p < len(d.s) && d.s[d.p] == '"' {
 		v, sc, err := d.str(d.valBuf)

@@ -135,7 +135,12 @@ ClickHouseSink::ClickHouseSink(ClickHouseConfig cfg) : cfg_(std::move(cfg)) {
     }
     // Текст запроса фиксирован; кодируем только пробелы (%20) — остальные
     // символы после валидации таблицы URL-безопасны.
-    std::string query = "INSERT INTO " + cfg_.table + " FORMAT RowBinary";
+    // Список колонок задаётся явно: с ревизии 4 формата в схеме появился
+    // level (текстовый уровень из свойства), и опора на порядок колонок
+    // таблицы разъехалась бы молча.
+    std::string query = "INSERT INTO " + cfg_.table +
+                        " (timestamp,duration,event,level_num,filename,file_path,props)"
+                        " FORMAT RowBinary";
     std::string path = "/?query=";
     for (char c : query) {
         if (c == ' ') {

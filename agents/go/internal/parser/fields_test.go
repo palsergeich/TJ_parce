@@ -21,40 +21,85 @@ func reconstructNDJSON(ev []byte, datePrefix string, fnEsc, fpEsc []byte) ([]byt
 	for len(dur) > 1 && dur[0] == '0' {
 		dur = dur[1:]
 	}
-	dst := append([]byte(nil), `{"timestamp":"`...)
-	dst = append(dst, datePrefix...)
-	dst = append(dst, f.TimePart...)
-	dst = append(dst, `","duration":`...)
-	dst = append(dst, dur...)
-	dst = append(dst, `,"event":"`...)
-	dst = AppendEscaped(dst, f.Event)
-	dst = append(dst, `","level":`...)
+	// §4.5 rev 4: пары собираются целиком, включая поля заголовка, и
+	// повторившийся ключ сворачивается в массив. Группировка здесь намеренно
+	// своя, а не общая с regroupRepeated, — иначе дифференциальный тест
+	// перестал бы быть независимой проверкой.
+	type pair struct{ name, enc []byte }
+	var pairs []pair
+	add := func(name string, enc []byte) { pairs = append(pairs, pair{[]byte(name), enc}) }
+
+	tsEnc := append([]byte{'"'}, datePrefix...)
+	tsEnc = append(tsEnc, f.TimePart...)
+	tsEnc = append(tsEnc, '"')
+	add("timestamp", tsEnc)
+	add("duration", append([]byte(nil), dur...))
+	evEnc := append([]byte{'"'}, AppendEscaped(nil, f.Event)...)
+	evEnc = append(evEnc, '"')
+	add("event", evEnc)
 	if IsNumberToken(f.Level) {
-		dst = append(dst, f.Level...)
+		add("level_num", append([]byte(nil), f.Level...))
 	} else {
-		dst = append(dst, '"')
-		dst = AppendEscaped(dst, f.Level)
-		dst = append(dst, '"')
+		lv := append([]byte{'"'}, AppendEscaped(nil, f.Level)...)
+		lv = append(lv, '"')
+		add("level_num", lv)
 	}
-	dst = append(dst, `,"filename":"`...)
-	dst = append(dst, fnEsc...)
-	dst = append(dst, `","file_path":"`...)
-	dst = append(dst, fpEsc...)
-	dst = append(dst, '"')
+	fnEnc := append([]byte{'"'}, fnEsc...)
+	fnEnc = append(fnEnc, '"')
+	add("filename", fnEnc)
+	fpEnc := append([]byte{'"'}, fpEsc...)
+	fpEnc = append(fpEnc, '"')
+	add("file_path", fpEnc)
+
 	var scratch []byte
 	scratch = ScanProps(f.Body, f.PropsAt, scratch, func(name, value []byte, quoted bool) {
-		dst = append(dst, ',', '"')
-		dst = AppendEscaped(dst, name)
-		dst = append(dst, '"', ':')
+		var enc []byte
 		if !quoted && !isAlwaysStringField(name) && IsNumberToken(value) {
-			dst = append(dst, value...)
+			enc = append(enc, value...)
 		} else {
-			dst = append(dst, '"')
-			dst = AppendEscaped(dst, value)
-			dst = append(dst, '"')
+			enc = append(enc, '"')
+			enc = AppendEscaped(enc, value)
+			enc = append(enc, '"')
 		}
+		pairs = append(pairs, pair{name: append([]byte(nil), name...), enc: enc})
 	})
 	_ = scratch
+
+	dst := append([]byte(nil), '{')
+	used := make([]bool, len(pairs))
+	firstOut := true
+	for i := range pairs {
+		if used[i] {
+			continue
+		}
+		used[i] = true
+		group := [][]byte{pairs[i].enc}
+		for j := i + 1; j < len(pairs); j++ {
+			if !used[j] && bytes.Equal(pairs[j].name, pairs[i].name) {
+				used[j] = true
+				group = append(group, pairs[j].enc)
+			}
+		}
+		if !firstOut {
+			dst = append(dst, ',')
+		}
+		firstOut = false
+		dst = append(dst, '"')
+		dst = AppendEscaped(dst, pairs[i].name)
+		dst = append(dst, '"', ':')
+		if len(group) == 1 {
+			dst = append(dst, group[0]...)
+			continue
+		}
+		dst = append(dst, '[')
+		for k, g := range group {
+			if k > 0 {
+				dst = append(dst, ',')
+			}
+			dst = append(dst, g...)
+		}
+		dst = append(dst, ']')
+	}
 	dst = append(dst, '}', '\n')
 	return dst, true
 }

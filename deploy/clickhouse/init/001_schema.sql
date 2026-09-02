@@ -9,6 +9,11 @@ CREATE TABLE IF NOT EXISTS tj.events
     ts               DateTime64(6, 'UTC')      CODEC(DoubleDelta, ZSTD(1)),
     duration_us      UInt64                    CODEC(T64, ZSTD(1)),
     event            LowCardinality(String),
+    -- level_num — третье позиционное поле заголовка ТЖ (важность события);
+    -- level — одноимённое СВОЙСТВО события (INFO|DEBUG|WARNING|...). До rev 4
+    -- формата они схлопывались в один ключ NDJSON и текст терялся целиком
+    -- (format-spec.md §4.5).
+    level_num        LowCardinality(String),
     level            LowCardinality(String),
     collection       LowCardinality(String),
     src_file         LowCardinality(String),
@@ -73,7 +78,10 @@ CREATE TABLE IF NOT EXISTS tj.events
     deadlock_graph   String                    CODEC(ZSTD(6)),
 
     -- === длинный хвост ===
-    props            Map(LowCardinality(String), String) CODEC(ZSTD(3)),
+    -- Значение — массив ВСЕХ вхождений ключа в событии, в порядке источника
+    -- (format-spec.md §4.5 rev 4). Одиночное свойство даёт массив из одного
+    -- элемента: props['X'][1].
+    props            Map(LowCardinality(String), Array(String)) CODEC(ZSTD(3)),
 
     INDEX idx_usr        usr           TYPE bloom_filter(0.01)      GRANULARITY 4,
     INDEX idx_session    session_id    TYPE bloom_filter(0.01)      GRANULARITY 4,

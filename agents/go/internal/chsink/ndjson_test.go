@@ -169,12 +169,12 @@ func TestBuildNDJSONErrors(t *testing.T) {
 		`{"timestamp":"12:34.567890"`,
 		`{"нет":"заголовка"}`,
 		`{"timestamp":"12:34.567890","duration":x}`,
-		`{"timestamp":"12:34.567890","duration":1,"event":"E","level":1,"filename":"f","file_path":"p"`,
-		`{"timestamp":"12:34.567890","duration":1,"event":"E","level":1,"filename":"f","file_path":"p",}`,
-		`{"timestamp":"12:34.567890","duration":1,"event":"E","level":1,"filename":"f","file_path":"p","a":}`,
-		`{"timestamp":"12:34.567890","duration":1,"event":"E","level":1,"filename":"f","file_path":"p","a":"\q"}`,
-		`{"timestamp":"12:34.567890","duration":1,"event":"E","level":1,"filename":"f","file_path":"p","a":"\ud800"}`,
-		`{"timestamp":"короткий","duration":1,"event":"E","level":1,"filename":"f","file_path":"p"}`,
+		`{"timestamp":"12:34.567890","duration":1,"event":"E","level_num":1,"filename":"f","file_path":"p"`,
+		`{"timestamp":"12:34.567890","duration":1,"event":"E","level_num":1,"filename":"f","file_path":"p",}`,
+		`{"timestamp":"12:34.567890","duration":1,"event":"E","level_num":1,"filename":"f","file_path":"p","a":}`,
+		`{"timestamp":"12:34.567890","duration":1,"event":"E","level_num":1,"filename":"f","file_path":"p","a":"\q"}`,
+		`{"timestamp":"12:34.567890","duration":1,"event":"E","level_num":1,"filename":"f","file_path":"p","a":"\ud800"}`,
+		`{"timestamp":"короткий","duration":1,"event":"E","level_num":1,"filename":"f","file_path":"p"}`,
 		"{\"timestamp\":\"12:34.567890\",\"duration\":1,\"event\":\"E\",\"level\":1,\"filename\":\"f\",\"file_path\":\"p\"}\nхвост",
 	}
 	for i, s := range bad {
@@ -184,7 +184,7 @@ func TestBuildNDJSONErrors(t *testing.T) {
 	}
 	// Валидная строка с \u-escape (управляющий байт, как пишет AppendEscaped)
 	// и суррогатной парой — декодируется.
-	okLine := `{"timestamp":"12:34.567890","duration":1,"event":"E","level":1,"filename":"f","file_path":"p","a":"` +
+	okLine := `{"timestamp":"12:34.567890","duration":1,"event":"E","level_num":1,"filename":"f","file_path":"p","a":"` +
 		"\\u0001\\ud83d\\ude00x" + `"}` + "\n"
 	row, err := b.BuildNDJSON([]byte(okLine))
 	if err != nil {

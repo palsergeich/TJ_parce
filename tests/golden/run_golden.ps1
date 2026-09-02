@@ -1,6 +1,11 @@
 ﻿# Golden-раннер: гоняет нормализатор по каждому кейсу и сравнивает вывод с эталоном побайтно.
 #
-#   .\run_golden.ps1                       # проверить дефолтным exe (cpp_parse\build)
+#   .\run_golden.ps1                       # проверить дефолтным exe (core\build\Release)
+#
+# Генератор эталона — core/ (в таблице компонентов он и обозначен как «эталон
+# формата»). cpp_parse выведен из гейта на ревизии 4 формата: он заморожен как
+# v1.0-артефакт (CLAUDE.md: «НЕ трогать») и физически не может выдавать rev-4
+# вывод — повторяющиеся ключи там схлопываются (закрытый KI-4).
 #   .\run_golden.ps1 -Agent <путь к exe>   # проверить другого участника (bake-off)
 #   .\run_golden.ps1 -Regen                # перегенерировать expected.jsonl (после смены спеки!)
 #
@@ -10,7 +15,7 @@
 # а совпадение помечается как UNEXPECTED PASS (пора убрать XFAIL).
 
 param(
-    [string]$Agent = (Join-Path $PSScriptRoot '..\..\cpp_parse\build\count_contexts.exe'),
+    [string]$Agent = (Join-Path $PSScriptRoot '..\..\core\build\Release\tj-agent-cpp.exe'),
     [switch]$Regen
 )
 

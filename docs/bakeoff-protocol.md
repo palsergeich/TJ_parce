@@ -46,10 +46,11 @@ CREATE TABLE tj.events (
     timestamp  DateTime64(6),
     duration   UInt64,
     event      LowCardinality(String),
+    level_num  LowCardinality(String),
     level      LowCardinality(String),
     filename   String,
     file_path  String,
-    props      Map(LowCardinality(String), String)
+    props      Map(LowCardinality(String), Array(String))
 ) ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (event, timestamp);

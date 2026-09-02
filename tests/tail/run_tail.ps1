@@ -102,10 +102,12 @@ function Reset-CH {
     if ($n -ne 0) { throw "TRUNCATE не обнулил ${script:Table}: count()=$n" }
 }
 
-# count() и uniqExact(props['Usr']) по маркерному префиксу одной пробой.
+# count() и uniqExact(props['Usr'][1]) по маркерному префиксу одной пробой.
+# props с ревизии 4 формата — Map(String, Array(String)), поэтому скалярное
+# чтение свойства это props['X'][1] (format-spec §4.5).
 function Get-MarkerStats([string]$Prefix) {
-    $q = "SELECT count(), uniqExact(props['Usr']) FROM ${script:Table} " +
-         "WHERE startsWith(props['Usr'], '$Prefix') FORMAT TabSeparated"
+    $q = "SELECT count(), uniqExact(props['Usr'][1]) FROM ${script:Table} " +
+         "WHERE startsWith(props['Usr'][1], '$Prefix') FORMAT TabSeparated"
     $parts = (Invoke-CH $q) -split "`t"
     return [pscustomobject]@{ cnt = [long]$parts[0]; uniq = [long]$parts[1] }
 }
@@ -372,10 +374,10 @@ function Invoke-S2 {
             $cnt3 = Get-CHLong "SELECT count() FROM ${script:Table}"
             [void]$checks.Add((New-Check 'лишние записи не появились (стабильно 7)' ($cnt3 -eq 7) ("count()=$cnt3")))
 
-            $descr = Invoke-CH ("SELECT props['Descr'] FROM ${script:Table} WHERE props['Usr'] = 'tail_inc1' FORMAT TabSeparated")
+            $descr = Invoke-CH ("SELECT props['Descr'][1] FROM ${script:Table} WHERE props['Usr'][1] = 'tail_inc1' FORMAT TabSeparated")
             [void]$checks.Add((New-Check 'значение свойства склеено целиком через границу дозаписи' `
-                ($descr -eq 'halfA_halfB_assembled') ("props['Descr']='$descr', ожидалось 'halfA_halfB_assembled'")))
-            $inc2 = Get-CHLong "SELECT count() FROM ${script:Table} WHERE props['Usr'] = 'tail_inc2'"
+                ($descr -eq 'halfA_halfB_assembled') ("props['Descr'][1]='$descr', ожидалось 'halfA_halfB_assembled'")))
+            $inc2 = Get-CHLong "SELECT count() FROM ${script:Table} WHERE props['Usr'][1] = 'tail_inc2'"
             [void]$checks.Add((New-Check 'второе полное событие дошло' ($inc2 -eq 1) ("записей tail_inc2: $inc2")))
         }
 
@@ -431,9 +433,9 @@ function Invoke-S3 {
 
         # какие файлы реально видны в CH + непрерывность счётчиков на границах
         $pos = 'tail_'.Length + 1
-        $rowsRaw = Invoke-CH ("SELECT filename, min(toInt64OrZero(substring(props['Usr'], $pos))) AS mn, " +
-            "max(toInt64OrZero(substring(props['Usr'], $pos))) AS mx, count() AS c FROM ${script:Table} " +
-            "WHERE startsWith(props['Usr'], 'tail_') GROUP BY filename ORDER BY mn FORMAT TabSeparated")
+        $rowsRaw = Invoke-CH ("SELECT filename, min(toInt64OrZero(substring(props['Usr'][1], $pos))) AS mn, " +
+            "max(toInt64OrZero(substring(props['Usr'][1], $pos))) AS mx, count() AS c FROM ${script:Table} " +
+            "WHERE startsWith(props['Usr'][1], 'tail_') GROUP BY filename ORDER BY mn FORMAT TabSeparated")
         $rows = @(@($rowsRaw -split "`n") | Where-Object { $_ -ne '' } | ForEach-Object {
             $p = $_ -split "`t"
             [pscustomobject]@{ file = $p[0]; mn = [long]$p[1]; mx = [long]$p[2]; cnt = [long]$p[3] }
@@ -613,7 +615,7 @@ function Invoke-S6 {
 
         # опрос лага, пока генератор пишет: lag = now_ms - max(GenMs в CH)
         $samples = @()
-        $qMax = "SELECT max(toUInt64OrZero(props['GenMs'])) FROM ${script:Table} WHERE startsWith(props['Usr'], 'tail_')"
+        $qMax = "SELECT max(toUInt64OrZero(props['GenMs'][1])) FROM ${script:Table} WHERE startsWith(props['Usr'][1], 'tail_')"
         if ($genStarted) {
             $t0 = Get-UnixMsNow
             $sampleDeadline = (Get-Date).AddSeconds($script:T.S6Dur + 5)

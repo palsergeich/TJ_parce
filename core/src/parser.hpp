@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace tj {
 namespace parse {
@@ -38,13 +39,17 @@ bool append_event(std::string& dst, const char* ev, std::size_t n,
 
 // --- RowBinary (ClickHouse, --sink clickhouse) -------------------------------
 // Кодирование того же разобранного события в одну строку RowBinary для
-// INSERT ... FORMAT RowBinary; порядок колонок фиксирован схемой tj_bench.events:
+// INSERT ... FORMAT RowBinary; список колонок задаётся явно в clickhouse_sink:
 //   timestamp DateTime64(6) — Int64 LE, микросекунды с эпохи (деградированный
 //                             файл без даты в имени → 0);
 //   duration  UInt64 LE (переполнение 2^64 клампится);
-//   event, level, filename, file_path — String (varint длина + байты; level
-//                             числовой и так является десятичным текстом);
-//   props     Map(String,String) — varint числа пар + пары (ключ, значение).
+//   event, level_num, filename, file_path — String (varint длина + байты;
+//                             level_num числовой и так является десятичным
+//                             текстом); текстовый level=INFO — обычное
+//                             свойство события и уезжает в props;
+//   props     Map(String, Array(String)) — varint числа пар, затем на каждый
+//                             ключ: строка ключа, varint длины массива и все
+//                             его значения (format-spec §4.5 rev 4).
 // Значения свойств — ТЕКСТ без JSON-экранирования: кавычки '' / "" развёрнуты
 // по тем же правилам §4.1/KI-10, что и NDJSON; значение без кавычек — сырой
 // токен; многострочные значения сохраняют реальные байты \r\n.
@@ -54,8 +59,13 @@ struct RowBinaryCtx {
     std::string file_path;      // сырой относительный путь («два предка»)
     std::int64_t date_us = -1;  // µs с эпохи на начало часа "20YY-MM-DDTHH:";
                                 // -1 — нет даты (timestamp события → 0)
-    std::string pairs;          // scratch: закодированные пары Map события
+    std::string pairs;          // scratch: закодированный Map события
     std::string val;            // scratch: байты текущего значения
+    // §4.5 rev 4: props — Map(String, Array(String)), поэтому пары сначала
+    // копятся, а потом группируются по имени. Векторы переиспользуются между
+    // событиями (контекст живёт на поток), аллокаций на горячем пути нет.
+    std::vector<std::string> prop_names;
+    std::vector<std::string> prop_vals;
 };
 
 // Инициализация даты файла из date_prefix ("20YY-MM-DDTHH:" либо "").

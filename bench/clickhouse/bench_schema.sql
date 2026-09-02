@@ -7,10 +7,12 @@ CREATE TABLE IF NOT EXISTS tj_bench.events
     timestamp  DateTime64(6),
     duration   UInt64,
     event      LowCardinality(String),
-    level      LowCardinality(String),
+    level_num  LowCardinality(String),  -- важность из заголовка ТЖ (rev 4)
+    level      LowCardinality(String),  -- свойство события level=INFO|DEBUG
     filename   String,
     file_path  String,
-    props      Map(LowCardinality(String), String)
+    -- Значение — все вхождения ключа в порядке события (format-spec §4.5 rev 4)
+    props      Map(LowCardinality(String), Array(String))
 ) ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (event, timestamp);

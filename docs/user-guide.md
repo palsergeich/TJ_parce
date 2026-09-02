@@ -52,7 +52,7 @@ cpp_parse\build\count_contexts.exe <каталог_ТЖ> [потоки] [вых�
 
 - Каталог сканируется рекурсивно, берутся `*.log` ≥ 100 байт; ожидается штатная структура ТЖ `<каталог>\<процесс>_<pid>\YYMMDDHH.log` (дата и час берутся из имени файла).
 - `потоки` — суммарный бюджет (читатели+разборщики), 1..1024. Для воспроизводимого порядка событий — `1`.
-- Выход — NDJSON: `{"timestamp":"2025-11-30T21:00:53.520012","duration":375000,"event":"CALL","level":1,...все свойства}`. Полный контракт: [format-spec.md](format-spec.md).
+- Выход — NDJSON: `{"timestamp":"2025-11-30T21:00:53.520012","duration":375000,"event":"CALL","level_num":1,...все свойства}`. Полный контракт: [format-spec.md](format-spec.md).
 - Exit-коды: `0` — успех, `1` — ошибка аргументов/записи, `2` — часть файлов не прочиталась.
 - `--no-output` — только парсинг, замер скорости (нужен и 3-й аргумент).
 
@@ -67,7 +67,7 @@ powershell -File deploy\importer\import-jsonl.ps1 -Path events.jsonl
 # параметры: -Url http://localhost:8123  -Database tj  -DryRun
 ```
 
-Импортёр потоково гонит NDJSON в ClickHouse; весь маппинг «поле ТЖ → колонка» выполняется на стороне БД (`JSONExtract`), горячие поля — в типизированные колонки, остальное — в `props Map(String,String)`. Скорость: 100–180 тыс. строк/с. Подробности маппинга: [deploy/importer/README.md](../deploy/importer/README.md).
+Импортёр потоково гонит NDJSON в ClickHouse; весь маппинг «поле ТЖ → колонка» выполняется на стороне БД (`JSONExtract`), горячие поля — в типизированные колонки, остальное — в `props Map(String, Array(String))` (значение — все вхождения ключа, format-spec §4.5 rev 4). Скорость: 100–180 тыс. строк/с. Подробности маппинга: [deploy/importer/README.md](../deploy/importer/README.md).
 
 **Большой архив** грузите по коллекциям, удаляя промежуточные NDJSON (полный корпус 175 ГБ → ~200 ГБ временных файлов, если делать разом):
 
@@ -204,7 +204,7 @@ ORDER BY a.dur DESC LIMIT 30;
 **Свойства из «длинного хвоста» (всё, что не легло в колонки):**
 
 ```sql
-SELECT props['Interface'] AS iface, count()
+SELECT props['Interface'][1] AS iface, count()
 FROM tj.events WHERE event = 'CALL' GROUP BY iface ORDER BY 2 DESC LIMIT 10;
 ```
 

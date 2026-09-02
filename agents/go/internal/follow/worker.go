@@ -65,9 +65,10 @@ type worker struct {
 	// wal != nil — режим дискового буфера: событие сериализуется в NDJSON
 	// и пишется в буфер (Append блокируется на полном буфере — это и есть
 	// backpressure), слабы/sink воркером не используются.
-	wal     *wal.WAL
-	ndjBuf  []byte
-	walDead bool // ErrStopped/фатал буфера: производство событий прекращено
+	wal        *wal.WAL
+	ndjBuf     []byte
+	ndjScratch parser.Scratch // §4.5: следы полей, переиспользуются между событиями
+	walDead    bool           // ErrStopped/фатал буфера: производство событий прекращено
 
 	tailers     map[uint32]*tailer
 	queue       []uint32
@@ -431,7 +432,7 @@ func (w *worker) emitWAL(t *tailer, ev []byte, end int64) {
 	if w.walDead {
 		return
 	}
-	line, ok := parser.AppendEvent(w.ndjBuf[:0], ev, t.datePrefix, t.filenameEsc, t.filePathEsc)
+	line, ok := parser.AppendEventScratch(w.ndjBuf[:0], ev, t.datePrefix, t.filenameEsc, t.filePathEsc, &w.ndjScratch)
 	w.ndjBuf = line[:0] // буфер переиспользуется (Append копирует до возврата)
 	if !ok {
 		w.st.parseSkips.Add(1)

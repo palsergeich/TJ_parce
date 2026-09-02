@@ -283,44 +283,265 @@ pub fn parse_event<E: EventEmitter>(ev: &[u8], em: &mut E) -> bool {
 
 /// Эмиттер NDJSON-записи по format-spec (байт-в-байт с эталоном — golden-суита
 /// сверяет побайтно; любое отклонение — баг).
+/// След одного поля в буфере вывода (§4.5 rev 4). Имя хранится диапазоном
+/// УЖЕ ЭКРАНИРОВАННЫХ байтов в `dst`: экранирование детерминировано, поэтому
+/// сравнение экранированных имён эквивалентно сравнению исходных, но не
+/// требует тащить в эмиттер время жизни события.
+pub struct FieldRef {
+    key_off: usize,
+    name_off: usize,
+    name_end: usize,
+    val_off: usize,
+    end_off: usize,
+}
+
+const SIG_SLOTS: usize = 128;
+
+/// Скретч разбора события: следы полей плюс таблица сигнатур имён для
+/// O(N)-обнаружения повтора ключа. Поколение `gen` заменяет обнуление таблицы;
+/// честная попарная сверка имён обходится примерно в 20% пропускной способности.
+pub struct RefScratch {
+    refs: Vec<FieldRef>,
+    tbl: [u32; SIG_SLOTS],
+    stamp: [u32; SIG_SLOTS],
+    gen: u32,
+    dup: bool,
+}
+
+impl RefScratch {
+    fn new() -> Self {
+        RefScratch { refs: Vec::new(), tbl: [0; SIG_SLOTS], stamp: [0; SIG_SLOTS], gen: 0, dup: false }
+    }
+    fn begin_event(&mut self) {
+        self.refs.clear();
+        self.dup = false;
+        self.gen = self.gen.wrapping_add(1);
+        if self.gen == 0 {
+            self.stamp = [0; SIG_SLOTS];
+            self.gen = 1;
+        }
+    }
+    /// Сигнатура имени за O(1): длина + первый/последний/средний байт.
+    /// Совпадение сигнатур не означает совпадения имён — точную сверку делает
+    /// `regroup`, он же решает, есть ли повтор на самом деле.
+    fn note(&mut self, name: &[u8]) {
+        let l = name.len();
+        let h = if l == 0 {
+            1u32
+        } else {
+            (l as u32) << 24 | (name[0] as u32) << 16 | (name[l - 1] as u32) << 8 | name[l >> 1] as u32
+        };
+        let mut slot = (h as usize) & (SIG_SLOTS - 1);
+        loop {
+            if self.stamp[slot] != self.gen {
+                self.stamp[slot] = self.gen;
+                self.tbl[slot] = h;
+                return;
+            }
+            if self.tbl[slot] == h {
+                self.dup = true;
+                return;
+            }
+            slot = (slot + 1) & (SIG_SLOTS - 1);
+        }
+    }
+}
+
+thread_local! {
+    static REF_SCRATCH: std::cell::RefCell<RefScratch> = std::cell::RefCell::new(RefScratch::new());
+}
+
 pub struct JsonEmitter<'a> {
     dst: &'a mut Vec<u8>,
     date_prefix: &'a str,
     filename_esc: &'a [u8],
     file_path_esc: &'a [u8],
+    body_start: usize,
+    sc: &'a mut RefScratch,
+}
+
+impl JsonEmitter<'_> {
+    #[inline]
+    fn same_name(&self, a: &FieldRef, b: &FieldRef) -> bool {
+        self.dst[a.name_off..a.name_end] == self.dst[b.name_off..b.name_end]
+    }
+
+    /// §4.5 rev 4: ключ, встретившийся больше одного раза (в том числе
+    /// свойство, столкнувшееся с полем заголовка), кодируется JSON-массивом
+    /// значений в порядке источника. Одиночный ключ остаётся скаляром.
+    /// Тело объекта перестраивается только при реальном повторе.
+    fn regroup(&mut self) {
+        if self.sc.refs.len() < 2 || !self.sc.dup {
+            return;
+        }
+        let mut repeated = false;
+        'outer: for i in 1..self.sc.refs.len() {
+            for j in 0..i {
+                if self.same_name(&self.sc.refs[i], &self.sc.refs[j]) {
+                    repeated = true;
+                    break 'outer;
+                }
+            }
+        }
+        if !repeated {
+            return;
+        }
+
+        let base = self.body_start;
+        let src: Vec<u8> = self.dst[base..].to_vec();
+        self.dst.truncate(base);
+        let mut done = vec![false; self.sc.refs.len()];
+        let mut first = true;
+        for i in 0..self.sc.refs.len() {
+            if done[i] {
+                continue;
+            }
+            done[i] = true;
+            let mut cnt = 1;
+            for j in i + 1..self.sc.refs.len() {
+                if !done[j] && src[self.sc.refs[i].name_off - base..self.sc.refs[i].name_end - base]
+                    == src[self.sc.refs[j].name_off - base..self.sc.refs[j].name_end - base]
+                {
+                    cnt += 1;
+                }
+            }
+            if !first {
+                self.dst.push(b',');
+            }
+            first = false;
+            if cnt == 1 {
+                let r = &self.sc.refs[i];
+                self.dst
+                    .extend_from_slice(&src[r.key_off - base..r.end_off - base]);
+                continue;
+            }
+            let r = &self.sc.refs[i];
+            self.dst
+                .extend_from_slice(&src[r.key_off - base..r.val_off - base]);
+            self.dst.push(b'[');
+            self.dst
+                .extend_from_slice(&src[r.val_off - base..r.end_off - base]);
+            for j in i + 1..self.sc.refs.len() {
+                if done[j]
+                    || src[self.sc.refs[i].name_off - base..self.sc.refs[i].name_end - base]
+                        != src[self.sc.refs[j].name_off - base..self.sc.refs[j].name_end - base]
+                {
+                    continue;
+                }
+                done[j] = true;
+                self.dst.push(b',');
+                let rj = &self.sc.refs[j];
+                self.dst
+                    .extend_from_slice(&src[rj.val_off - base..rj.end_off - base]);
+            }
+            self.dst.push(b']');
+        }
+    }
 }
 
 impl EventEmitter for JsonEmitter<'_> {
     #[inline]
     fn header(&mut self, time_part: &[u8], duration: &[u8], event: &[u8], level: &[u8]) {
-        let dst = &mut *self.dst;
-        dst.extend_from_slice(b"{\"timestamp\":\"");
-        dst.extend_from_slice(self.date_prefix.as_bytes());
-        dst.extend_from_slice(time_part); // маска гарантирует только цифры/':'/'.'
-        dst.extend_from_slice(b"\",\"duration\":");
-        dst.extend_from_slice(duration);
-        dst.extend_from_slice(b",\"event\":\"");
-        append_escaped(dst, event);
-        dst.extend_from_slice(b"\",\"level\":");
+        self.dst.push(b'{');
+        self.body_start = self.dst.len();
+        self.sc.begin_event();
+        self.sc.refs.clear();
+
+        // Поля заголовка участвуют в перегруппировке наравне со свойствами:
+        // свойство с именем поля заголовка сливается с ним в массив (§4.5 п.3).
+        let mut ko = self.dst.len();
+        self.dst.extend_from_slice(b"\"timestamp\":");
+        let mut no = ko + 1;
+        let mut ne = no + 9;
+        let mut vo = self.dst.len();
+        self.dst.push(b'"');
+        self.dst.extend_from_slice(self.date_prefix.as_bytes());
+        self.dst.extend_from_slice(time_part); // маска гарантирует только цифры/':'/'.'
+        self.dst.push(b'"');
+        let end_off = self.dst.len();
+        self.sc.note(b"timestamp");
+        self.sc.refs.push(FieldRef { key_off: ko, name_off: no, name_end: ne, val_off: vo, end_off });
+
+        ko = self.dst.len() + 1;
+        self.dst.extend_from_slice(b",\"duration\":");
+        no = ko + 1;
+        ne = no + 8;
+        vo = self.dst.len();
+        self.dst.extend_from_slice(duration);
+        let end_off = self.dst.len();
+        self.sc.note(b"duration");
+        self.sc.refs.push(FieldRef { key_off: ko, name_off: no, name_end: ne, val_off: vo, end_off });
+
+        ko = self.dst.len() + 1;
+        self.dst.extend_from_slice(b",\"event\":");
+        no = ko + 1;
+        ne = no + 5;
+        vo = self.dst.len();
+        self.dst.push(b'"');
+        append_escaped(self.dst, event);
+        self.dst.push(b'"');
+        let end_off = self.dst.len();
+        self.sc.note(b"event");
+        self.sc.refs.push(FieldRef { key_off: ko, name_off: no, name_end: ne, val_off: vo, end_off });
+
+        ko = self.dst.len() + 1;
+        self.dst.extend_from_slice(b",\"level_num\":");
+        no = ko + 1;
+        ne = no + 9;
+        vo = self.dst.len();
         if is_number_token(level) {
-            dst.extend_from_slice(level);
+            self.dst.extend_from_slice(level);
         } else {
-            dst.push(b'"');
-            append_escaped(dst, level);
-            dst.push(b'"');
+            self.dst.push(b'"');
+            append_escaped(self.dst, level);
+            self.dst.push(b'"');
         }
-        dst.extend_from_slice(b",\"filename\":\"");
-        dst.extend_from_slice(self.filename_esc);
-        dst.extend_from_slice(b"\",\"file_path\":\"");
-        dst.extend_from_slice(self.file_path_esc);
-        dst.push(b'"');
+        let end_off = self.dst.len();
+        self.sc.note(b"level_num");
+        self.sc.refs.push(FieldRef { key_off: ko, name_off: no, name_end: ne, val_off: vo, end_off });
+
+        ko = self.dst.len() + 1;
+        self.dst.extend_from_slice(b",\"filename\":");
+        no = ko + 1;
+        ne = no + 8;
+        vo = self.dst.len();
+        self.dst.push(b'"');
+        self.dst.extend_from_slice(self.filename_esc);
+        self.dst.push(b'"');
+        let end_off = self.dst.len();
+        self.sc.note(b"filename");
+        self.sc.refs.push(FieldRef { key_off: ko, name_off: no, name_end: ne, val_off: vo, end_off });
+
+        ko = self.dst.len() + 1;
+        self.dst.extend_from_slice(b",\"file_path\":");
+        no = ko + 1;
+        ne = no + 9;
+        vo = self.dst.len();
+        self.dst.push(b'"');
+        self.dst.extend_from_slice(self.file_path_esc);
+        self.dst.push(b'"');
+        let end_off = self.dst.len();
+        self.sc.note(b"file_path");
+        self.sc.refs.push(FieldRef { key_off: ko, name_off: no, name_end: ne, val_off: vo, end_off });
     }
 
     #[inline]
     fn prop_name(&mut self, name: &[u8]) {
+        self.sc.note(name);
+        let key_off = self.dst.len() + 1; // на кавычку имени, без разделителя
         self.dst.extend_from_slice(b",\"");
+        let name_off = self.dst.len();
         append_escaped(self.dst, name);
+        let name_end = self.dst.len();
         self.dst.extend_from_slice(b"\":");
+        let val_off = self.dst.len();
+        self.sc.refs.push(FieldRef {
+            key_off,
+            name_off,
+            name_end,
+            val_off,
+            end_off: val_off,
+        });
     }
 
     #[inline]
@@ -345,6 +566,9 @@ impl EventEmitter for JsonEmitter<'_> {
     #[inline]
     fn quoted_end(&mut self) {
         self.dst.push(b'"');
+        if let Some(r) = self.sc.refs.last_mut() {
+            r.end_off = self.dst.len();
+        }
     }
 
     #[inline]
@@ -358,10 +582,14 @@ impl EventEmitter for JsonEmitter<'_> {
             append_escaped(self.dst, val);
             self.dst.push(b'"');
         }
+        if let Some(r) = self.sc.refs.last_mut() {
+            r.end_off = self.dst.len();
+        }
     }
 
     #[inline]
     fn finish(&mut self) {
+        self.regroup();
         self.dst.push(b'}');
         self.dst.push(b'\n');
     }
@@ -381,13 +609,20 @@ pub fn append_event(
     filename_esc: &[u8],
     file_path_esc: &[u8],
 ) -> bool {
-    let mut em = JsonEmitter {
-        dst,
-        date_prefix,
-        filename_esc,
-        file_path_esc,
-    };
-    parse_event(ev, &mut em)
+    // Скретч следов полей переиспользуется между событиями: §4.5 не должен
+    // стоить аллокации на горячем пути.
+    REF_SCRATCH.with(|cell| {
+        let mut sc = cell.borrow_mut();
+        let mut em = JsonEmitter {
+            dst,
+            date_prefix,
+            filename_esc,
+            file_path_esc,
+            body_start: 0,
+            sc: &mut sc,
+        };
+        parse_event(ev, &mut em)
+    })
 }
 
 /// Автомат свойств: имя до `=`, значение по правилам кавычек §4.1 либо без
@@ -575,7 +810,7 @@ mod tests {
     fn short_header_level_eats_rest() {
         // §2.2: нет запятой после уровня → level поглощает остаток
         let out = parse_one("00:01.000001-2,EXCP,Pad=xxx").unwrap();
-        assert!(out.contains("\"level\":\"Pad=xxx\""), "{out}");
+        assert!(out.contains("\"level_num\":\"Pad=xxx\""), "{out}");
         assert!(!out.contains("\"Pad\":"), "{out}");
     }
 

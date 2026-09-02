@@ -48,7 +48,7 @@ type Src struct {
 }
 
 // Row — строка целевой таблицы. В bench-режиме заполняется базовая часть
-// (Props = все свойства, дедуп last-wins); в rich-режиме Props — хвост
+// (Props = все свойства, с повторами); в rich-режиме Props — хвост
 // невыбранных свойств (с дубликатами), а горячие колонки лежат в Rich.
 type Row struct {
 	Time     time.Time
@@ -205,19 +205,14 @@ func (b *RowBuilder) Build(f parser.EventFields, datePrefix, filename, filePath 
 	return r
 }
 
-// benchProp — одно свойство bench-пути: дубликат ключа — последнее значение
-// побеждает. Общая точка прямого пути (ScanProps) и реплея из дискового
-// буфера (BuildNDJSON) — семантика и учёт r.bytes обязаны совпадать байт-в-байт.
+// benchProp — одно свойство bench-пути. §4.5 rev 4: повторы ключа НЕ
+// схлопываются, сохраняются все вхождения в порядке события; свёртка в
+// Map(String, Array(String)) происходит при выкладке колонок (cols.go).
+// Общая точка прямого пути (ScanProps) и реплея из дискового буфера
+// (BuildNDJSON) — семантика и учёт r.bytes обязаны совпадать байт-в-байт.
 func (b *RowBuilder) benchProp(r *Row, name, value []byte) {
 	key := b.intern(name)
 	val := string(value)
-	for i := range r.Props {
-		if r.Props[i].Name == key {
-			r.bytes += len(val) - len(r.Props[i].Value)
-			r.Props[i].Value = val
-			return
-		}
-	}
 	r.Props = append(r.Props, Pair{Name: key, Value: val})
 	r.bytes += len(key) + len(val)
 }
@@ -230,6 +225,15 @@ func (b *RowBuilder) richProp(r *Row, name, value []byte) {
 	if isHot && !keep {
 		r.bytes += len(value)
 		return
+	}
+	if b.hot.hasPending {
+		// §4.5 rev 4: первое вхождение повторившегося горячего ключа —
+		// в колонку оно уже не попадёт, но в props обязано быть, и раньше
+		// текущего значения (порядок источника).
+		pk := b.intern(name)
+		r.Props = append(r.Props, Pair{Name: pk, Value: b.hot.pending})
+		r.bytes += len(pk) + len(b.hot.pending)
+		b.hot.hasPending = false
 	}
 	key := b.intern(name)
 	val := string(value)

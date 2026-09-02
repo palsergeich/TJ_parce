@@ -31,6 +31,7 @@ CREATE TABLE tj.events
     ts               DateTime64(6, 'UTC')      CODEC(DoubleDelta, ZSTD(1)),
     duration_us      UInt64                    CODEC(T64, ZSTD(1)),
     event            LowCardinality(String),                     -- CALL, DBMSSQL, TLOCK...
+    level_num        LowCardinality(String),                     -- важность из заголовка ТЖ
     level            LowCardinality(String),                     -- INFO/WARNING/ERROR/...
     collection       LowCardinality(String),                     -- имя набора логов (Diag, Mem, LongDB_01...)
     src_file         LowCardinality(String),                     -- filename (yyMMddHH.log)
@@ -88,7 +89,7 @@ CREATE TABLE tj.events
     deadlock_graph   String                    CODEC(ZSTD(6)),   -- DeadlockConnectionIntersections
 
     -- === длинный хвост ===
-    props            Map(LowCardinality(String), String) CODEC(ZSTD(3)),
+    props            Map(LowCardinality(String), Array(String)) CODEC(ZSTD(3)),
 
     -- === skip-индексы ===
     INDEX idx_usr        usr           TYPE bloom_filter(0.01)      GRANULARITY 4,
@@ -111,7 +112,16 @@ SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 
 - **`PARTITION BY toDate(ts)`** — при ~200М строк/день партиция-день даёт быстрый TTL-drop целыми партами (`ttl_only_drop_parts=1`) и удобный period-vs-period.
 - **`ORDER BY (event, ts, ...)`** — все дашборд-запросы фильтруют по типу события и времени; `event` первым даёт локальность DBMSSQL/CALL/TLOCK-блоков и лучшее сжатие текстов. Drill-down по `session_id`/`usr` закрывают bloom-фильтры.
-- **Смешанные типы**: `session_id`, `client_id` и пр. — числовые; если нормализатор встретил строку (списки в `CLSTR.SessionID`, `TLOCK.WaitConnections`) — в типизированную колонку пишется 0/распарсенный массив, оригинал кладётся в `props['SessionID']`.
+- **`process_name` у rmngr (следствие rev 4)**: в событиях менеджера кластера `p:processName`
+  приходит цепочкой вложенных контекстов — `RegMngrCntxt` → `ServerJobExecutorContext` →
+  `DebugQueryTargets`. До rev 4 приёмник брал первое вхождение, остальные пропадали; теперь
+  в колонку идёт **последнее** (самый вложенный контекст, §4.5), а вся цепочка лежит в
+  `props['p:processName']`. Затронуто 15.12 млн событий — 47.9% всех событий rmngr
+  (CONN, SESN, CLSTR, Context, EXCP, ATTN); у rphost `p:processName` — имя ИБ и не повторяется,
+  там ничего не изменилось. Дашборды, группирующие по `process_name`, увидят у rmngr другие
+  подписи; если нужен внешний контекст — это `props['p:processName'][1]`.
+
+- **Смешанные типы**: `session_id`, `client_id` и пр. — числовые; если нормализатор встретил строку (списки в `CLSTR.SessionID`, `TLOCK.WaitConnections`) — в типизированную колонку пишется 0/распарсенный массив, оригинал кладётся в `props['SessionID']`. С ревизии 4 формата (format-spec §4.5) значение `props` — **массив всех вхождений** ключа в событии: `props['X'][1]` для одиночного свойства, `props['Func'] = ['Transaction','CommitTransaction']` для повтора. Скалярная колонка берёт последний элемент. Заголовочная важность события и одноимённое свойство `level=INFO` разведены по колонкам `level_num` и `level` — до rev 4 они схлопывались в один ключ и текст уровня терялся во всех строках.
 - **`locks_dump` с ZSTD(9)** — редкие (10K/сутки), но гигантские значения; высокий уровень сжатия окупается, чтение единичное (drill-down).
 - Пер-колоночный TTL для `plan_text`/`locks_dump` (например, `TTL toDateTime(ts) + INTERVAL 14 DAY` на колонке) — опция, если диск дороже, чем повторный сбор.
 

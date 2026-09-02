@@ -67,7 +67,10 @@ func TestRowBuilderBuild(t *testing.T) {
 		{"process", "rphost"},
 		{"OSThread", "4188"},
 		{"Txt", "a'b"},
-		{"Dup", "2"}, // последнее значение побеждает, позиция первая
+		// §4.5 rev 4: оба вхождения сохраняются в порядке события; в колонку
+		// Map(String, Array(String)) они свернутся как Dup -> ['1','2'].
+		{"Dup", "1"},
+		{"Dup", "2"},
 	}
 	if len(r.Props) != len(want) {
 		t.Fatalf("props = %+v, want %+v", r.Props, want)
